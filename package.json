@@ -1,0 +1,49 @@
+{
+  "name": "@verevoir/workflows",
+  "version": "0.1.0",
+  "description": "Workflow-adapter primitive: a contract over kanban/issue/objective sources (cards with status, assignee, labels) with implementations as subpath imports. Trello today; Jira, Notion DBs, Linear, GitHub Issues, aigency objectives follow.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./trello": {
+      "types": "./dist/trello/index.d.ts",
+      "import": "./dist/trello/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "prettier --check .",
+    "format": "prettier --write .",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "prettier": "^3",
+    "typescript": "^5",
+    "vitest": "^4"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/verevoir/workflows.git"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
