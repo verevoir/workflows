@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-05-24
+
+- Docs: README gains a "Most consumers reach this via MCP" section pointing at `@verevoir/mcp` and the `alwaysLoad: true` Claude Code config. Calls out that the MCP server exposes the Trello adapter as MCP tools, so most LLM-driven consumers don't need to import this package directly.
+- **New: `llms.txt`** — was missing; this release ships one alongside `README.md` for LLM-shaped documentation discovery. Same shape as the sibling packages.
+- Adds `llms.txt` to `package.json`'s `files` array so it ships in the npm tarball.
+
 ## 0.2.0 — 2026-05-24
 
 - **Contract: `isCardFresh(env, boardUrl, cardId, version)`** added to `WorkflowAdapter`. Cache layers ask the workflow source whether a held `version` (the `lastActivity` timestamp from a prior `getCard` / `listCards`) is still current. Returns `true` when current, `false` when moved (including 404 / card removed). Pairs with the `wrapWithCache` validation TTL in `@verevoir/context`.
