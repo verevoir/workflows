@@ -80,6 +80,14 @@ export interface Label {
  * Notion DB row, aigency objective. */
 export interface Card {
   id: string;
+  /** Human-readable identifier when the backend has one — Trello
+   * card number (`idShort`), Jira issue key, Linear identifier,
+   * Notion's `ID` property when configured, etc. Distinct from `id`
+   * (the stable record identifier the adapter uses for API calls)
+   * because the readable form is what humans paste into commits,
+   * branch names, and PR titles. Absent when the backend has no
+   * such concept or the adapter hasn't been told where to find it. */
+  readableId?: string;
   title: string;
   /** Markdown body. Empty string when the card has no description. */
   body: string;

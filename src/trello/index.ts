@@ -145,6 +145,7 @@ interface TrelloLabel {
 
 interface TrelloCard {
   id: string;
+  idShort: number;
   name: string;
   desc: string | null;
   idList: string;
@@ -169,6 +170,7 @@ interface TrelloAction {
 function mapCard(c: TrelloCard): Card {
   return {
     id: c.id,
+    readableId: String(c.idShort),
     title: c.name,
     body: c.desc ?? '',
     columnId: c.idList,
@@ -188,7 +190,7 @@ function mapCard(c: TrelloCard): Card {
 // Adapter methods
 // ---------------------------------------------------------------------------
 
-const CARD_FIELDS = 'name,desc,idList,idMembers,labels,due,url,dateLastActivity';
+const CARD_FIELDS = 'idShort,name,desc,idList,idMembers,labels,due,url,dateLastActivity';
 
 export async function listColumns(env: WorkflowEnv, boardUrl: string): Promise<Column[]> {
   const id = boardId(boardUrl);

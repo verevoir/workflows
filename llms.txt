@@ -18,8 +18,9 @@ Direct in-process use (below) is for: writing your own MCP server, building a ne
 
 - `@verevoir/workflows` — contract module: `WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`.
 - `@verevoir/workflows/trello` — Trello adapter (read + write).
+- `@verevoir/workflows/notion` — Notion-database adapter (read + write) via `@notionhq/client` (optional peer dep). Auto-detects property mapping (title / status / people / multi_select). Body via native `pages.retrieveMarkdown` / `pages.updateMarkdown`.
 
-Future: `@verevoir/workflows/jira`, `@verevoir/workflows/linear`, `@verevoir/workflows/notion`, `@verevoir/workflows/github-issues`, `@verevoir/workflows/aigency-objectives`.
+Future: `@verevoir/workflows/jira`, `@verevoir/workflows/linear`, `@verevoir/workflows/github-issues`, `@verevoir/workflows/aigency-objectives`.
 
 ## Install
 
@@ -65,7 +66,7 @@ interface WorkflowAdapter {
 }
 ```
 
-`Card` carries the universal-ish properties (`title`, `body`, `columnId`, `parentId?`, `assigneeIds`, `labels`, `dueDate?`, `url?`, `lastActivity?`) plus an open `customFields?` bag keyed by field ID. `isCardFresh` is used by cache layers — pass the `lastActivity` from a prior `getCard` / `listCards` as the `version` and the adapter answers true / false against the live state.
+`Card` carries the universal-ish properties (`title`, `body`, `columnId`, `parentId?`, `assigneeIds`, `labels`, `dueDate?`, `url?`, `lastActivity?`, `readableId?`) plus an open `customFields?` bag keyed by field ID. `readableId` is the human-readable identifier (Trello card number, Notion `ID` property, Jira issue key, etc.) distinct from `id` (stable record identifier for API calls). For Notion, `readableId` reads from the property named `ID` by default — override with `NOTION_READABLE_ID_PROPERTY`. `isCardFresh` is used by cache layers — pass the `lastActivity` from a prior `getCard` / `listCards` as the `version` and the adapter answers true / false against the live state.
 
 ## Authentication
 

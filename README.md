@@ -18,6 +18,7 @@ Direct in-process consumption (the usage shown below) is for: writing your own M
 
 - `@verevoir/workflows` — contract module: `WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`.
 - `@verevoir/workflows/trello` — Trello adapter (read + write).
+- `@verevoir/workflows/notion` — Notion-database adapter (read + write) via `@notionhq/client` (optional peer dep). Maps a Notion database to the WorkflowAdapter contract: rows are cards, the auto-detected status / select property provides columns, the people property gives assignees, the multi_select property gives labels. Body content round-trips through Notion's native `pages.retrieveMarkdown` / `pages.updateMarkdown`.
 
 ## Install
 
@@ -75,7 +76,11 @@ interface WorkflowAdapter {
 
 `isCardFresh` answers "is the `version` I'm holding (the `lastActivity` timestamp from a prior `getCard` / `listCards`) still the live one?" — the cheap freshness check cache layers (`@verevoir/context`'s `wrapWithCache`) use to validate held cards without re-fetching. Returns `false` when the card has moved (including 404 / removed).
 
-`Card` carries the universal-ish properties (`title`, `body`, `columnId`, `parentId?`, `assigneeIds`, `labels`, `dueDate?`, `url?`, `lastActivity?`) plus an open `customFields?` bag keyed by field ID. Backend-specific fields (Jira story points, Notion select properties, etc.) land there with typed values.
+`Card` carries the universal-ish properties (`title`, `body`, `columnId`, `parentId?`, `assigneeIds`, `labels`, `dueDate?`, `url?`, `lastActivity?`, `readableId?`) plus an open `customFields?` bag keyed by field ID. Backend-specific fields (Jira story points, Notion select properties, etc.) land there with typed values.
+
+`readableId` is the human-readable identifier when the backend has one: Trello card number, Jira issue key, Linear identifier, Notion's `ID` property when configured. Distinct from `id` (the stable record identifier the adapter uses for API calls) — `readableId` is what humans paste into commits, branches, PR titles.
+
+For the Notion adapter specifically, `readableId` reads from the property named `ID` by default; override with the `NOTION_READABLE_ID_PROPERTY` env var. Supports `unique_id` (renders as `<prefix>-<number>` — e.g. `STDIO-42`), `rich_text`, `formula.string`, and `title` property types.
 
 ## Authentication
 
