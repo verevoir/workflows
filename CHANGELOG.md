@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 — 2026-05-24
+
+- **New: `@verevoir/workflows/notion`** — second WorkflowAdapter implementation, against a Notion database used as a kanban-shaped tracker. Auto-detects property mapping from the data source schema: `title` → row title, first `status`/`select` → column, first `people` → assignees, first `multi_select` → labels. Operations that depend on an unmapped property throw `WorkflowApiError(501)`.
+- Uses Notion's v2026 database + data-source split (`c.databases.retrieve` → first `data_source`, then `c.dataSources.retrieve` + `c.dataSources.query`).
+- Body content round-trips via Notion's native `pages.retrieveMarkdown` + `pages.updateMarkdown` — no in-house Markdown converter to maintain.
+- `isCardFresh` via `last_edited_time` on a `pages.retrieve`.
+- `envFromNotionProcessEnv()` builds a `WorkflowEnv` from `NOTION_API_KEY`.
+- `@notionhq/client` is an optional peer dependency — consumers using only `/trello` don't pull it.
+- 23 new tests covering URL parsing, env, columns, cards (filters), getCard, isCardFresh, createCard (incl. 501 path), updateCard / moveCard, comments, custom fields.
+
 ## 0.2.1 — 2026-05-24
 
 - Docs: README gains a "Most consumers reach this via MCP" section pointing at `@verevoir/mcp` and the `alwaysLoad: true` Claude Code config. Calls out that the MCP server exposes the Trello adapter as MCP tools, so most LLM-driven consumers don't need to import this package directly.

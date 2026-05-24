@@ -18,8 +18,9 @@ Direct in-process use (below) is for: writing your own MCP server, building a ne
 
 - `@verevoir/workflows` — contract module: `WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`.
 - `@verevoir/workflows/trello` — Trello adapter (read + write).
+- `@verevoir/workflows/notion` — Notion-database adapter (read + write) via `@notionhq/client` (optional peer dep). Auto-detects property mapping (title / status / people / multi_select). Body via native `pages.retrieveMarkdown` / `pages.updateMarkdown`.
 
-Future: `@verevoir/workflows/jira`, `@verevoir/workflows/linear`, `@verevoir/workflows/notion`, `@verevoir/workflows/github-issues`, `@verevoir/workflows/aigency-objectives`.
+Future: `@verevoir/workflows/jira`, `@verevoir/workflows/linear`, `@verevoir/workflows/github-issues`, `@verevoir/workflows/aigency-objectives`.
 
 ## Install
 
