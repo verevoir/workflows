@@ -1,0 +1,101 @@
+# @verevoir/workflows
+
+Workflow-adapter primitive: one contract over kanban / issue / objective sources. Trello today; Jira, Linear, Notion databases, GitHub Issues/Projects, and an in-aigency wrapper over the objective tree follow under the same shape.
+
+## Purpose
+
+Surfaces workflow-shaped sources (cards with status, assignee, labels, custom fields) behind a single neutral contract — so consumers write code once and swap backends. Sibling to `@verevoir/sources` (file-shape) and `@verevoir/context` (cache).
+
+The contract is intentionally non-flavoured by any one tool. `Column` is whatever the backend calls its workflow state (Trello list, Jira status, Notion select option, aigency objective phase). `Label` is whatever it calls its tags. Tools' extensions land in `customFields`.
+
+## Most consumers reach this via MCP
+
+If you're driving an LLM agent and want kanban / issue / objective operations as tools, run the `@verevoir/mcp` server — it wraps the Trello adapter (and future ones) as MCP tools: `list_columns`, `list_cards`, `get_card`, `create_card`, `update_card`, `move_card`, `list_comments`, `add_comment`. See [`@verevoir/mcp`](https://github.com/verevoir/mcp) for client config; key setting `"alwaysLoad": true` keeps tools out of the deferred-tools pool.
+
+Direct in-process use (below) is for: writing your own MCP server, building a new backend adapter, composing multiple adapters in a library, or non-MCP runtimes.
+
+## Subpaths
+
+- `@verevoir/workflows` — contract module: `WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`.
+- `@verevoir/workflows/trello` — Trello adapter (read + write).
+
+Future: `@verevoir/workflows/jira`, `@verevoir/workflows/linear`, `@verevoir/workflows/notion`, `@verevoir/workflows/github-issues`, `@verevoir/workflows/aigency-objectives`.
+
+## Install
+
+```bash
+npm install @verevoir/workflows
+```
+
+No required peer dependencies.
+
+## Canonical usage — Trello
+
+```ts
+import { envFromTrelloProcessEnv, trello } from '@verevoir/workflows/trello';
+
+// Set TRELLO_API_KEY + TRELLO_API_TOKEN (+ TRELLO_REFERER if your
+// Power-Up key is origin-scoped) in your environment.
+const env = envFromTrelloProcessEnv();
+if (!env) throw new Error('TRELLO_API_KEY or TRELLO_API_TOKEN not set');
+
+const boardUrl = 'https://trello.com/b/abc123/my-board';
+
+const columns = await trello.listColumns(env, boardUrl);
+const cards = await trello.listCards(env, boardUrl, { columnId: columns[0].id });
+
+await trello.moveCard(env, boardUrl, cards[0].id, columns[1].id);
+await trello.addComment(env, boardUrl, cards[0].id, 'Picked this up.');
+```
+
+## The contract
+
+```ts
+interface WorkflowAdapter {
+  listColumns(env, boardUrl) → Promise<Column[]>;
+  listCards(env, boardUrl, filter?) → Promise<Card[]>;
+  getCard(env, boardUrl, cardId) → Promise<Card>;
+  isCardFresh(env, boardUrl, cardId, version) → Promise<boolean>;  // cheap freshness check (lastActivity compare)
+  createCard(env, boardUrl, columnId, fields) → Promise<Card>;
+  updateCard(env, boardUrl, cardId, patch) → Promise<void>;
+  moveCard(env, boardUrl, cardId, toColumnId) → Promise<void>;
+  listComments(env, boardUrl, cardId) → Promise<Comment[]>;
+  addComment(env, boardUrl, cardId, body) → Promise<void>;
+  listCustomFields(env, boardUrl) → Promise<CustomFieldDef[]>;
+}
+```
+
+`Card` carries the universal-ish properties (`title`, `body`, `columnId`, `parentId?`, `assigneeIds`, `labels`, `dueDate?`, `url?`, `lastActivity?`) plus an open `customFields?` bag keyed by field ID. `isCardFresh` is used by cache layers — pass the `lastActivity` from a prior `getCard` / `listCards` as the `version` and the adapter answers true / false against the live state.
+
+## Authentication
+
+Each adapter packs its auth shape into `WorkflowEnv.token`:
+
+- **Trello** — `"<apiKey>:<apiToken>"` (split on first `:`). Optional `referer` for origin-scoped Power-Up keys (set `TRELLO_REFERER`).
+- **Jira** (future) — `"<email>:<api-token>"` (basic auth).
+- **Notion** (future) — `"<integration-token>"` (single value).
+- **Linear** (future) — `"<api-key>"` (single value).
+
+Per-adapter `envFromXxxProcessEnv()` helpers build a valid env from process environment variables.
+
+## Hierarchy support
+
+Cards carry an optional `parentId` for hierarchical workflows (Jira sub-tasks under epics, Notion nested rows, aigency sub-objectives). Trello is flat — its adapter throws `WorkflowApiError(501)` if a patch tries to set `parentId`.
+
+## Custom fields
+
+Backend-defined fields populate `Card.customFields` and accept writes via `CardPatch.customFields`. Schema discoverable via `listCustomFields(env, boardUrl)`. Adapters without custom-field support (Trello v0) return `[]` and leave `Card.customFields` undefined.
+
+## Errors
+
+`WorkflowApiError` is thrown on transport / API failures. `status` mirrors HTTP semantics: 404 = missing card / board / column, 401/403 = auth, 501 = "this adapter doesn't support that operation" (e.g., Trello `parentId` patches).
+
+## What this is NOT
+
+- Not a caching layer. Cache responses via `@verevoir/context` (a workflow-specific subpath is a future addition).
+- Not a sync engine. Adapters are stateless clients; cross-backend mirroring belongs in a separate sync layer.
+- Not opinionated about scope. `boardUrl` is opaque to the contract; per-adapter URL parsing defines what it means.
+
+## License
+
+Apache-2.0.

@@ -8,6 +8,12 @@ Surfaces workflow-shaped sources (cards with status, assignee, labels, custom fi
 
 The contract is intentionally non-flavoured by any one tool. `Column` is whatever the backend calls its workflow state (Trello list, Jira status, Notion select option, aigency objective phase). `Label` is whatever it calls its tags. Tools' extensions land in `customFields`.
 
+## Most consumers reach this via MCP
+
+If you're driving an LLM agent and want kanban / issue / objective operations as tools, you usually don't import `@verevoir/workflows` directly — you run the [`@verevoir/mcp`](https://github.com/verevoir/mcp) server, which wraps the Trello adapter (and future ones) as MCP tools: `list_columns` / `list_cards` / `get_card` / `create_card` / `update_card` / `move_card` / `list_comments` / `add_comment`. See [`@verevoir/mcp`](https://github.com/verevoir/mcp) for Claude Code config; key recommendation is `"alwaysLoad": true` so the tools surface as first-class instead of being deferred behind `ToolSearch`.
+
+Direct in-process consumption (the usage shown below) is for: writing your own MCP server, embedding workflow operations in a non-MCP runtime, building higher-level libraries that compose multiple adapters, or implementing a new backend (Jira, Linear, Notion, custom).
+
 ## Subpaths
 
 - `@verevoir/workflows` — contract module: `WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`.
