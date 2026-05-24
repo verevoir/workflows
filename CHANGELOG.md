@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 — 2026-05-24
+
+- **Contract: `isCardFresh(env, boardUrl, cardId, version)`** added to `WorkflowAdapter`. Cache layers ask the workflow source whether a held `version` (the `lastActivity` timestamp from a prior `getCard` / `listCards`) is still current. Returns `true` when current, `false` when moved (including 404 / card removed). Pairs with the `wrapWithCache` validation TTL in `@verevoir/context`.
+- `@verevoir/workflows/trello`: implements `isCardFresh` as a single GET with `?fields=dateLastActivity` — the cheapest probe Trello offers. 404 maps to false.
+- **Breaking for third-party adapters** (none today): the new method is required on the interface.
+
 ## 0.1.1 — 2026-05-24
 
 - **Trello Power-Up referer support.** Trello scopes Power-Up API keys to allowed-origin lists; server-side callers were 401-ing because `fetch` doesn't send a `Referer` header. `WorkflowEnv` gains an optional `referer?: string` field (adapters that don't need it ignore); the Trello adapter sets `Referer` from it. `envFromTrelloProcessEnv()` reads `TRELLO_REFERER` and populates the field. Required for any Trello deployment.

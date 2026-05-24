@@ -239,6 +239,33 @@ export async function getCard(env: WorkflowEnv, _boardUrl: string, cardId: strin
   return mapCard(card);
 }
 
+/** Returns true when the held `version` (a `dateLastActivity`
+ * timestamp from a prior `getCard` / `listCards`) still matches the
+ * card's current value. One Trello GET requesting only the
+ * `dateLastActivity` field — the cheapest probe the API offers.
+ * 404 (card deleted / moved out of scope) maps to false. */
+export async function isCardFresh(
+  env: WorkflowEnv,
+  _boardUrl: string,
+  cardId: string,
+  version: string
+): Promise<boolean> {
+  const params = new URLSearchParams({ fields: 'dateLastActivity' });
+  try {
+    const data = await trelloCall<{ dateLastActivity?: string }>(
+      env,
+      'GET',
+      `/cards/${cardId}`,
+      undefined,
+      params
+    );
+    return data.dateLastActivity === version;
+  } catch (err) {
+    if (err instanceof WorkflowApiError && err.status === 404) return false;
+    throw err;
+  }
+}
+
 export async function createCard(
   env: WorkflowEnv,
   _boardUrl: string,
@@ -344,6 +371,7 @@ export const trello: WorkflowAdapter = {
   listColumns,
   listCards,
   getCard,
+  isCardFresh,
   createCard,
   updateCard,
   moveCard,
