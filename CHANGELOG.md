@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 — 2026-05-24
+
+- **Fix: Notion `createCard` + `updateCard` body posts.** The adapter was calling `pages.updateMarkdown` with `replace_content: { markdown: body }`; Notion's API actually expects `replace_content: { new_str: body }`. 0.3.0 always failed body posting with `body.replace_content.new_str should be defined`. Now corrected (with `allow_deleting_content: true` so an empty body cleanly clears the page).
+- Caught during the Trello → Notion work-tracker migration (Trello-39); every `createCard` with a body would 400. No tests caught it because the SDK mocks didn't validate the shape — adding that validation in tests is a follow-up worth doing.
+
 ## 0.3.0 — 2026-05-24
 
 - **New: `@verevoir/workflows/notion`** — second WorkflowAdapter implementation, against a Notion database used as a kanban-shaped tracker. Auto-detects property mapping from the data source schema: `title` → row title, first `status`/`select` → column, first `people` → assignees, first `multi_select` → labels. Operations that depend on an unmapped property throw `WorkflowApiError(501)`.

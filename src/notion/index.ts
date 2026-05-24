@@ -549,7 +549,7 @@ export async function createCard(
       await c.pages.updateMarkdown({
         page_id: created.id,
         type: 'replace_content',
-        replace_content: { markdown: fields.body },
+        replace_content: { new_str: fields.body, allow_deleting_content: true },
       } as never);
     }
     return await mapPageToCard(c, created, schema);
@@ -576,7 +576,7 @@ export async function updateCard(
       await c.pages.updateMarkdown({
         page_id: cardId,
         type: 'replace_content',
-        replace_content: { markdown: patch.body },
+        replace_content: { new_str: patch.body, allow_deleting_content: true },
       } as never);
     }
   } catch (err) {
