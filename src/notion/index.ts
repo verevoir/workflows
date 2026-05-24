@@ -52,22 +52,27 @@ import {
 // URL parsing
 // ---------------------------------------------------------------------------
 
-const ID_NO_DASH = /^[0-9a-f]{32}$/i;
-const ID_DASHED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BARE_HEX_32 = /^[0-9a-f]{32}$/i;
+const PURELY_NUMERIC = /^\d+$/;
 
-/** Parses a Notion database URL or raw ID into a dashed-form ID.
- * Accepts:
- *   - `https://www.notion.so/<workspace>/<db-id>?v=<view-id>`
- *   - `https://www.notion.so/<db-id>?v=<view-id>`
- *   - `https://notion.so/<db-id>`
- *   - bare 32-hex or 8-4-4-4-12 IDs. */
+/** Parses a Notion database URL or raw ID into a usable identifier.
+ *
+ * - URL forms (`notion.so/<workspace>/<title>-<32-hex>`, `notion.so/<32-hex>`,
+ *   etc.) — the 32-hex segment is extracted and dashified.
+ * - Bare 32-hex (no dashes) — dashified to the canonical UUID form.
+ * - Anything else that isn't purely numeric — passed through as-is.
+ *   The Notion SDK rejects invalid IDs at API-call time; defence-in-
+ *   depth at the parser isn't worth the complication. Per Adam
+ *   (2026-05-24): "if it's not just a number we use it as is."
+ * - Empty / purely-numeric input returns null. */
 export function parseNotionDatabaseUrl(input: string): { databaseId: string } | null {
   const trimmed = input.trim().replace(/\?.*$/, '').replace(/#.*$/, '').replace(/\/$/, '');
-  if (ID_DASHED.test(trimmed)) return { databaseId: trimmed.toLowerCase() };
-  if (ID_NO_DASH.test(trimmed)) return { databaseId: dashifyId(trimmed.toLowerCase()) };
+  if (!trimmed) return null;
   const urlMatch = trimmed.match(/notion\.so\/(?:[^/?#]+\/)?(?:.*-)?([0-9a-f]{32})/i);
   if (urlMatch) return { databaseId: dashifyId(urlMatch[1].toLowerCase()) };
-  return null;
+  if (BARE_HEX_32.test(trimmed)) return { databaseId: dashifyId(trimmed.toLowerCase()) };
+  if (PURELY_NUMERIC.test(trimmed)) return null;
+  return { databaseId: trimmed };
 }
 
 function dashifyId(id: string): string {

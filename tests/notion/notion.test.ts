@@ -10,23 +10,31 @@ describe('parseNotionDatabaseUrl', () => {
   const DASHED = 'aabbccdd-1122-3344-5566-77889900aabb';
   const RAW = 'aabbccdd11223344556677889900aabb';
 
-  it('parses dashed UUIDs', () => {
-    expect(parseNotionDatabaseUrl(DASHED)).toEqual({ databaseId: DASHED });
-  });
-
-  it('dashifies 32-hex raw IDs', () => {
-    expect(parseNotionDatabaseUrl(RAW)).toEqual({ databaseId: DASHED });
-  });
-
   it('extracts database IDs from canonical workspace URLs with view params', () => {
     expect(
       parseNotionDatabaseUrl(`https://www.notion.so/myws/${RAW}?v=ffeeddccbbaa99887766554433221100`)
     ).toEqual({ databaseId: DASHED });
   });
 
-  it('returns null for unparseable inputs', () => {
-    expect(parseNotionDatabaseUrl('https://example.com/not-notion')).toBeNull();
+  it('dashifies 32-hex raw IDs', () => {
+    expect(parseNotionDatabaseUrl(RAW)).toEqual({ databaseId: DASHED });
+  });
+
+  it('passes dashed UUIDs through (already canonical)', () => {
+    expect(parseNotionDatabaseUrl(DASHED)).toEqual({ databaseId: DASHED });
+  });
+
+  it('passes other non-numeric inputs through as-is — SDK rejects bad IDs at call time', () => {
+    // Examples of inputs we deliberately do NOT format-check: STDIO-shaped
+    // prefixes, mixed-case identifiers, unusual notion-side conventions.
+    expect(parseNotionDatabaseUrl('STDIO-42')).toEqual({ databaseId: 'STDIO-42' });
+    expect(parseNotionDatabaseUrl('some-custom-id')).toEqual({ databaseId: 'some-custom-id' });
+  });
+
+  it('returns null for empty or purely-numeric inputs', () => {
     expect(parseNotionDatabaseUrl('')).toBeNull();
+    expect(parseNotionDatabaseUrl('   ')).toBeNull();
+    expect(parseNotionDatabaseUrl('12345')).toBeNull();
   });
 });
 
