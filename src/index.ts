@@ -30,6 +30,11 @@
  * `envFromTrelloProcessEnv()` build a valid env from process.env. */
 export interface WorkflowEnv {
   token: string;
+  /** Optional origin signal for adapters that require it. Trello
+   * Power-Up keys are scoped to allowed referrers; server-side
+   * callers MUST set this to a value that matches the Power-Up's
+   * origin or all calls 401. Adapters that don't need it ignore. */
+  referer?: string;
 }
 
 /** Error type for workflow API failures. `status` mirrors HTTP
