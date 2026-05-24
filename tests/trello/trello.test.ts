@@ -5,6 +5,7 @@ import {
   createCard,
   envFromTrelloProcessEnv,
   getCard,
+  isCardFresh,
   listCards,
   listColumns,
   listComments,
@@ -238,6 +239,53 @@ describe('getCard', () => {
 });
 
 // ---------------------------------------------------------------------------
+// isCardFresh
+// ---------------------------------------------------------------------------
+
+describe('isCardFresh', () => {
+  it('returns true when dateLastActivity matches the held version', async () => {
+    mockFetch({ dateLastActivity: '2026-05-24T09:05:31.000Z' });
+    await expect(isCardFresh(ENV, BOARD_URL, 'c1', '2026-05-24T09:05:31.000Z')).resolves.toBe(true);
+  });
+
+  it('returns false when dateLastActivity has moved', async () => {
+    mockFetch({ dateLastActivity: '2026-05-24T10:30:00.000Z' });
+    await expect(isCardFresh(ENV, BOARD_URL, 'c1', '2026-05-24T09:05:31.000Z')).resolves.toBe(
+      false
+    );
+  });
+
+  it('returns false when the card no longer exists (404)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve(''),
+      })
+    );
+    await expect(isCardFresh(ENV, BOARD_URL, 'gone', 'whatever')).resolves.toBe(false);
+  });
+
+  it('propagates non-404 errors', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve('boom'),
+      })
+    );
+    await expect(isCardFresh(ENV, BOARD_URL, 'c1', 'v')).rejects.toMatchObject({
+      name: 'WorkflowApiError',
+      status: 500,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // createCard
 // ---------------------------------------------------------------------------
 
@@ -411,11 +459,12 @@ describe('listCustomFields', () => {
 });
 
 describe('trello aggregate export', () => {
-  it('has all 9 methods from the WorkflowAdapter contract', () => {
+  it('has all 10 methods from the WorkflowAdapter contract', () => {
     const methods: Array<keyof typeof trello> = [
       'listColumns',
       'listCards',
       'getCard',
+      'isCardFresh',
       'createCard',
       'updateCard',
       'moveCard',

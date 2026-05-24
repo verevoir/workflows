@@ -57,6 +57,7 @@ interface WorkflowAdapter {
   listColumns(env, boardUrl): Promise<Column[]>;
   listCards(env, boardUrl, filter?): Promise<Card[]>;
   getCard(env, boardUrl, cardId): Promise<Card>;
+  isCardFresh(env, boardUrl, cardId, version): Promise<boolean>;
   createCard(env, boardUrl, columnId, fields): Promise<Card>;
   updateCard(env, boardUrl, cardId, patch): Promise<void>;
   moveCard(env, boardUrl, cardId, toColumnId): Promise<void>;
@@ -65,6 +66,8 @@ interface WorkflowAdapter {
   listCustomFields(env, boardUrl): Promise<CustomFieldDef[]>;
 }
 ```
+
+`isCardFresh` answers "is the `version` I'm holding (the `lastActivity` timestamp from a prior `getCard` / `listCards`) still the live one?" — the cheap freshness check cache layers (`@verevoir/context`'s `wrapWithCache`) use to validate held cards without re-fetching. Returns `false` when the card has moved (including 404 / removed).
 
 `Card` carries the universal-ish properties (`title`, `body`, `columnId`, `parentId?`, `assigneeIds`, `labels`, `dueDate?`, `url?`, `lastActivity?`) plus an open `customFields?` bag keyed by field ID. Backend-specific fields (Jira story points, Notion select properties, etc.) land there with typed values.
 

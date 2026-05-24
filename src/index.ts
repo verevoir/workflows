@@ -229,6 +229,25 @@ export interface WorkflowAdapter {
    * card doesn't exist. */
   getCard(env: WorkflowEnv, boardUrl: string, cardId: string): Promise<Card>;
 
+  /** Cheap freshness check used by cache layers. Asks "is the
+   * `version` handle the caller is holding still the live one for
+   * this card?". The `version` is whatever the adapter put on
+   * `Card.lastActivity` (Trello `dateLastActivity`, Notion
+   * `last_edited_time`, etc.) from a prior `getCard` / `listCards`
+   * read. Returns true when current; false when the card has moved
+   * (including when it no longer exists).
+   *
+   * Adapters use the cheapest backend-native primitive: Trello
+   * `?fields=dateLastActivity`, Notion `last_edited_time` on the
+   * page object, etc. The cache layer in `@verevoir/context` gates
+   * this behind a TTL so tight read loops don't hammer the upstream. */
+  isCardFresh(
+    env: WorkflowEnv,
+    boardUrl: string,
+    cardId: string,
+    version: string
+  ): Promise<boolean>;
+
   /** Create a new card in `columnId`. Returns the created card. */
   createCard(
     env: WorkflowEnv,
