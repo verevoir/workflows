@@ -53,13 +53,17 @@ function boardId(boardUrl: string): string {
 // Auth
 // ---------------------------------------------------------------------------
 
-/** Builds a WorkflowEnv from TRELLO_API_KEY + TRELLO_API_TOKEN env vars.
- * Returns null if either variable is absent. */
+/** Builds a WorkflowEnv from TRELLO_API_KEY + TRELLO_API_TOKEN env
+ * vars (+ optional TRELLO_REFERER for Power-Up origin matching).
+ * Returns null if either credential is absent. */
 export function envFromTrelloProcessEnv(): WorkflowEnv | null {
   const key = process.env['TRELLO_API_KEY'];
   const token = process.env['TRELLO_API_TOKEN'];
   if (!key || !token) return null;
-  return { token: `${key}:${token}` };
+  const env: WorkflowEnv = { token: `${key}:${token}` };
+  const referer = process.env['TRELLO_REFERER'];
+  if (referer) env.referer = referer;
+  return env;
 }
 
 /** Splits WorkflowEnv.token into apiKey + apiToken on the first ":".
@@ -98,6 +102,9 @@ async function trelloCall<T>(
   }
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  // Trello Power-Up keys are origin-scoped — without a matching
+  // Referer the API returns 401.
+  if (env.referer) headers['Referer'] = env.referer;
 
   const res = await fetch(`${TRELLO_API}${path}?${params}`, {
     method,
