@@ -8,7 +8,11 @@
 - `isCardFresh` via `last_edited_time` on a `pages.retrieve`.
 - `envFromNotionProcessEnv()` builds a `WorkflowEnv` from `NOTION_API_KEY`.
 - `@notionhq/client` is an optional peer dependency — consumers using only `/trello` don't pull it.
-- 23 new tests covering URL parsing, env, columns, cards (filters), getCard, isCardFresh, createCard (incl. 501 path), updateCard / moveCard, comments, custom fields.
+- **Contract: `Card.readableId?: string`** — optional human-readable identifier (Trello card number, Jira issue key, Notion `unique_id`, etc.). Distinct from `Card.id` (the stable record identifier the adapter uses for API calls); `readableId` is what humans paste into commits, branches, PR titles.
+- Trello adapter populates `readableId` from `idShort` (Trello's auto-incrementing card number).
+- Notion adapter reads `readableId` from a configured property (defaults to one named `ID`; override via `NOTION_READABLE_ID_PROPERTY` env var). Supports `unique_id` (renders as `<prefix>-<number>` when prefixed, e.g. `STDIO-42`), `rich_text`, `formula.string`, and `title` shapes.
+- Notion ID parser loosened per Adam's "use as-is if not just a number" rule: URL extraction + bare-32-hex dashifying retained for canonical form; other non-numeric input passes through (the SDK rejects bad IDs at call time).
+- 32 new tests (50→62 total + 6 skipped) covering everything above.
 
 ## 0.2.1 — 2026-05-24
 

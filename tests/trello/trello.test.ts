@@ -126,6 +126,7 @@ describe('listColumns', () => {
 const TRELLO_CARDS = [
   {
     id: 'c1',
+    idShort: 33,
     name: 'Card One',
     desc: 'Some desc',
     idList: 'l1',
@@ -137,6 +138,7 @@ const TRELLO_CARDS = [
   },
   {
     id: 'c2',
+    idShort: 34,
     name: 'Card Two',
     desc: null,
     idList: 'l2',
@@ -149,12 +151,13 @@ const TRELLO_CARDS = [
 ];
 
 describe('listCards', () => {
-  it('fetches all cards and maps fields including labels and lastActivity', async () => {
+  it('fetches all cards and maps fields including labels, readableId, and lastActivity', async () => {
     mockFetch(TRELLO_CARDS);
     const cards = await listCards(ENV, BOARD_URL);
     expect(cards).toHaveLength(2);
     expect(cards[0]).toMatchObject({
       id: 'c1',
+      readableId: '33',
       title: 'Card One',
       body: 'Some desc',
       columnId: 'l1',
@@ -164,6 +167,7 @@ describe('listCards', () => {
       url: 'https://trello.com/c/c1',
       lastActivity: '2026-05-20T10:00:00.000Z',
     });
+    expect(cards[1].readableId).toBe('34');
     // null desc becomes empty string
     expect(cards[1].body).toBe('');
     // null color label has no color property

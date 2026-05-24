@@ -134,9 +134,14 @@ interface DbSchema {
   statusType?: 'status' | 'select';
   peopleProp?: string;
   labelsProp?: string;
+  /** Property name carrying Notion's `unique_id` (or fallback
+   * `rich_text` / `formula`) — surfaced as `Card.readableId`.
+   * Defaults to the property named `ID` when present; override via
+   * `NOTION_READABLE_ID_PROPERTY` env var. Undefined when neither
+   * the default nor an override resolves. */
+  readableIdProp?: string;
   /** Full property catalog from the data source — used by
-   * `listCustomFields`. Typed as `unknown` because the SDK returns
-   * a discriminated union we narrow at use sites. */
+   * `listCustomFields`. */
   properties: Record<string, NotionPropertySchema>;
 }
 
@@ -147,6 +152,7 @@ interface NotionPropertySchema {
   status?: { options: Array<{ id: string; name: string; color?: string }> };
   select?: { options: Array<{ id: string; name: string; color?: string }> };
   multi_select?: { options: Array<{ id: string; name: string; color?: string }> };
+  unique_id?: { prefix?: string | null };
 }
 
 async function fetchSchema(c: Client, dbId: string): Promise<DbSchema> {
@@ -203,7 +209,23 @@ async function fetchSchema(c: Client, dbId: string): Promise<DbSchema> {
       `Notion data source ${dataSourceId} has no title property (every DB must have one)`
     );
   }
-  return { dataSourceId, titleProp, statusProp, statusType, peopleProp, labelsProp, properties };
+  // Readable-ID property: prefer the configured name (env override
+  // `NOTION_READABLE_ID_PROPERTY`, defaulting to "ID"). The property
+  // can be of type `unique_id` (Notion's auto-incrementing ID
+  // feature) or `rich_text` / `formula` (e.g. a manually-managed
+  // identifier). Absent when the configured property doesn't exist.
+  const readableIdPropName = process.env['NOTION_READABLE_ID_PROPERTY'] ?? 'ID';
+  const readableIdProp = readableIdPropName in properties ? readableIdPropName : undefined;
+  return {
+    dataSourceId,
+    titleProp,
+    statusProp,
+    statusType,
+    peopleProp,
+    labelsProp,
+    readableIdProp,
+    properties,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +280,47 @@ function readDueDate(page: PageObjectResponse): string | undefined {
   return undefined;
 }
 
+/** Render the configured readable-ID property to a string. Handles
+ * `unique_id` (Notion's auto-incrementing prefixed ID like
+ * `STDIO-42`), `rich_text` (human-managed identifier), and
+ * `formula.string` (computed identifier). Returns undefined when
+ * no readable-ID property is configured or the value is empty. */
+function readReadableId(page: PageObjectResponse, schema: DbSchema): string | undefined {
+  if (!schema.readableIdProp) return undefined;
+  const prop = page.properties[schema.readableIdProp];
+  if (!prop) return undefined;
+  if (prop.type === 'unique_id' && prop.unique_id) {
+    const { prefix, number } = prop.unique_id as { prefix: string | null; number: number | null };
+    if (number == null) return undefined;
+    return prefix ? `${prefix}-${number}` : String(number);
+  }
+  if (prop.type === 'rich_text') {
+    const text = (prop.rich_text as Array<{ plain_text: string }>)
+      .map((s) => s.plain_text)
+      .join('')
+      .trim();
+    return text || undefined;
+  }
+  if (
+    prop.type === 'formula' &&
+    prop.formula &&
+    (prop.formula as { type: string }).type === 'string'
+  ) {
+    const value = (prop.formula as { string: string | null }).string;
+    return value ?? undefined;
+  }
+  if (prop.type === 'title') {
+    // Edge case — someone configured the title property as their
+    // readable ID. Render the title text.
+    const text = (prop.title as Array<{ plain_text: string }>)
+      .map((s) => s.plain_text)
+      .join('')
+      .trim();
+    return text || undefined;
+  }
+  return undefined;
+}
+
 async function fetchBodyMarkdown(c: Client, pageId: string): Promise<string> {
   try {
     const resp = await c.pages.retrieveMarkdown({ page_id: pageId });
@@ -275,8 +338,10 @@ async function mapPageToCard(c: Client, page: PageObjectResponse, schema: DbSche
   const body = await fetchBodyMarkdown(c, page.id);
   const status = readStatus(page, schema);
   const due = readDueDate(page);
+  const readableId = readReadableId(page, schema);
   return {
     id: page.id,
+    ...(readableId ? { readableId } : {}),
     title: readTitle(page, schema),
     body,
     columnId: status?.id ?? '',

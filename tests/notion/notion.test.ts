@@ -333,6 +333,131 @@ describe('getCard', () => {
   });
 });
 
+describe('readableId — Notion ID property', () => {
+  beforeEach(() => {
+    delete process.env['NOTION_READABLE_ID_PROPERTY'];
+  });
+
+  /** Build a fullPageRow with an extra `ID` property of the given
+   * type. Notion's `unique_id` carries `{ prefix, number }`. */
+  function rowWithReadableId(propName: string, value: unknown) {
+    const base = fullPageRow('row-r', {
+      title: 'Has Readable ID',
+      statusOption: { id: 'col-todo', name: 'Todo' },
+    });
+    (base.properties as Record<string, unknown>)[propName] = value;
+    return base;
+  }
+
+  it('renders unique_id as `<prefix>-<number>` when prefix is set', async () => {
+    const schema = schemaResponse();
+    (schema.properties as Record<string, unknown>).ID = {
+      id: 'p_id',
+      name: 'ID',
+      type: 'unique_id',
+      unique_id: { prefix: 'STDIO' },
+    };
+    clientStub.databases.retrieve.mockResolvedValue(dbWithDataSource());
+    clientStub.dataSources.retrieve.mockResolvedValue(schema);
+    clientStub.pages.retrieve.mockResolvedValue(
+      rowWithReadableId('ID', {
+        id: 'p_id',
+        type: 'unique_id',
+        unique_id: { prefix: 'STDIO', number: 42 },
+      })
+    );
+    clientStub.pages.retrieveMarkdown.mockResolvedValue({ markdown: '' });
+    const { getCard } = await import('../../src/notion/index.js');
+    const card = await getCard(ENV, DB_URL, 'row-r');
+    expect(card.readableId).toBe('STDIO-42');
+  });
+
+  it('renders unique_id as just the number when there is no prefix', async () => {
+    const schema = schemaResponse();
+    (schema.properties as Record<string, unknown>).ID = {
+      id: 'p_id',
+      name: 'ID',
+      type: 'unique_id',
+      unique_id: { prefix: null },
+    };
+    clientStub.databases.retrieve.mockResolvedValue(dbWithDataSource());
+    clientStub.dataSources.retrieve.mockResolvedValue(schema);
+    clientStub.pages.retrieve.mockResolvedValue(
+      rowWithReadableId('ID', {
+        id: 'p_id',
+        type: 'unique_id',
+        unique_id: { prefix: null, number: 7 },
+      })
+    );
+    clientStub.pages.retrieveMarkdown.mockResolvedValue({ markdown: '' });
+    const { getCard } = await import('../../src/notion/index.js');
+    const card = await getCard(ENV, DB_URL, 'row-r');
+    expect(card.readableId).toBe('7');
+  });
+
+  it('falls back to rich_text content when the property is rich_text', async () => {
+    const schema = schemaResponse();
+    (schema.properties as Record<string, unknown>).ID = {
+      id: 'p_id',
+      name: 'ID',
+      type: 'rich_text',
+    };
+    clientStub.databases.retrieve.mockResolvedValue(dbWithDataSource());
+    clientStub.dataSources.retrieve.mockResolvedValue(schema);
+    clientStub.pages.retrieve.mockResolvedValue(
+      rowWithReadableId('ID', {
+        id: 'p_id',
+        type: 'rich_text',
+        rich_text: [{ plain_text: 'AGY-15' }],
+      })
+    );
+    clientStub.pages.retrieveMarkdown.mockResolvedValue({ markdown: '' });
+    const { getCard } = await import('../../src/notion/index.js');
+    const card = await getCard(ENV, DB_URL, 'row-r');
+    expect(card.readableId).toBe('AGY-15');
+  });
+
+  it('honours NOTION_READABLE_ID_PROPERTY env override', async () => {
+    process.env['NOTION_READABLE_ID_PROPERTY'] = 'Reference';
+    const schema = schemaResponse();
+    (schema.properties as Record<string, unknown>).Reference = {
+      id: 'p_ref',
+      name: 'Reference',
+      type: 'unique_id',
+      unique_id: { prefix: 'REF' },
+    };
+    clientStub.databases.retrieve.mockResolvedValue(dbWithDataSource());
+    clientStub.dataSources.retrieve.mockResolvedValue(schema);
+    clientStub.pages.retrieve.mockResolvedValue(
+      rowWithReadableId('Reference', {
+        id: 'p_ref',
+        type: 'unique_id',
+        unique_id: { prefix: 'REF', number: 99 },
+      })
+    );
+    clientStub.pages.retrieveMarkdown.mockResolvedValue({ markdown: '' });
+    const { getCard } = await import('../../src/notion/index.js');
+    const card = await getCard(ENV, DB_URL, 'row-r');
+    expect(card.readableId).toBe('REF-99');
+  });
+
+  it('leaves readableId undefined when the configured property is absent', async () => {
+    // schemaResponse() has no ID property → readableIdProp resolves to undefined
+    clientStub.databases.retrieve.mockResolvedValue(dbWithDataSource());
+    clientStub.dataSources.retrieve.mockResolvedValue(schemaResponse());
+    clientStub.pages.retrieve.mockResolvedValue(
+      fullPageRow('row-99', {
+        title: 'No readable ID',
+        statusOption: { id: 'col-todo', name: 'Todo' },
+      })
+    );
+    clientStub.pages.retrieveMarkdown.mockResolvedValue({ markdown: '' });
+    const { getCard } = await import('../../src/notion/index.js');
+    const card = await getCard(ENV, DB_URL, 'row-99');
+    expect(card).not.toHaveProperty('readableId');
+  });
+});
+
 describe('isCardFresh', () => {
   it('returns true on matching last_edited_time', async () => {
     clientStub.pages.retrieve.mockResolvedValue(
