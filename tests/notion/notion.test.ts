@@ -516,7 +516,7 @@ describe('createCard', () => {
       expect.objectContaining({
         page_id: 'row-new',
         type: 'replace_content',
-        replace_content: { markdown: 'created body' },
+        replace_content: { new_str: 'created body', allow_deleting_content: true },
       })
     );
   });
@@ -560,7 +560,7 @@ describe('updateCard / moveCard', () => {
       expect.objectContaining({
         page_id: 'row-1',
         type: 'replace_content',
-        replace_content: { markdown: 'New body' },
+        replace_content: { new_str: 'New body', allow_deleting_content: true },
       })
     );
   });
