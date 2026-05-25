@@ -566,6 +566,54 @@ describe('updateCard / moveCard', () => {
   });
 });
 
+describe('special-character status option ids (STDIO-84 regression)', () => {
+  // Notion status/select option ids are short opaque tokens, NOT UUIDs — they
+  // legitimately contain characters like `?`, `>`, `|`, `<`. The adapter must
+  // pass them through verbatim: sanitising or re-encoding would break column
+  // reads and moveCard. The live "In preview" column's real id is `?mm>`,
+  // which originally read as "garbled" but round-trips fine.
+  function schemaWithOddOptionIds() {
+    const schema = schemaResponse();
+    (schema.properties as Record<string, unknown>).Status = {
+      id: 'p_status',
+      name: 'Status',
+      type: 'status',
+      status: {
+        options: [
+          { id: 'col-todo', name: 'Todo', color: 'gray' },
+          { id: '?mm>', name: 'In preview', color: 'purple' },
+          { id: '|nc<', name: 'Blocked', color: 'red' },
+        ],
+      },
+    };
+    return schema;
+  }
+
+  it('listColumns returns special-character option ids verbatim', async () => {
+    clientStub.databases.retrieve.mockResolvedValue(dbWithDataSource());
+    clientStub.dataSources.retrieve.mockResolvedValue(schemaWithOddOptionIds());
+    const { listColumns } = await import('../../src/notion/index.js');
+    const cols = await listColumns(ENV, DB_URL);
+    expect(cols).toEqual([
+      { id: 'col-todo', name: 'Todo', position: 0 },
+      { id: '?mm>', name: 'In preview', position: 1 },
+      { id: '|nc<', name: 'Blocked', position: 2 },
+    ]);
+  });
+
+  it('moveCard sends a special-character columnId to Notion unmodified', async () => {
+    clientStub.databases.retrieve.mockResolvedValue(dbWithDataSource());
+    clientStub.dataSources.retrieve.mockResolvedValue(schemaWithOddOptionIds());
+    clientStub.pages.update.mockResolvedValue({});
+    const { moveCard } = await import('../../src/notion/index.js');
+    await moveCard(ENV, DB_URL, 'row-1', '?mm>');
+    const updateArgs = clientStub.pages.update.mock.calls[0]?.[0] as {
+      properties: Record<string, unknown>;
+    };
+    expect(updateArgs.properties['Status']).toEqual({ status: { id: '?mm>' } });
+  });
+});
+
 describe('comments', () => {
   it('listComments maps Notion comments to the Comment shape', async () => {
     clientStub.comments.list.mockResolvedValue({
