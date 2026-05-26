@@ -167,12 +167,12 @@ interface TrelloAction {
 // Field mapping helpers
 // ---------------------------------------------------------------------------
 
-function mapCard(c: TrelloCard): Card {
+function mapCard(c: TrelloCard, includeBody = true): Card {
   return {
     id: c.id,
     readableId: String(c.idShort),
     title: c.name,
-    body: c.desc ?? '',
+    body: includeBody ? (c.desc ?? '') : '',
     columnId: c.idList,
     assigneeIds: c.idMembers,
     labels: c.labels.map((l) => ({
@@ -215,7 +215,8 @@ export async function listCards(
     undefined,
     params
   );
-  let results = cards.map(mapCard);
+  const includeBody = filter?.includeBody ?? true;
+  let results = cards.map((c) => mapCard(c, includeBody));
 
   // Client-side filtering — consistent regardless of what Trello's server supports at v0.
   if (filter?.columnId !== undefined) {
@@ -230,6 +231,9 @@ export async function listCards(
   // Trello is flat — no card parents.
   if (filter?.parentId !== undefined) {
     return [];
+  }
+  if (filter?.limit !== undefined) {
+    results = results.slice(0, filter.limit);
   }
 
   return results;

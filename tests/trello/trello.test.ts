@@ -200,6 +200,13 @@ describe('listCards', () => {
     const cards = await listCards(ENV, BOARD_URL, { parentId: 'some-parent' });
     expect(cards).toHaveLength(0);
   });
+
+  it('omits bodies when includeBody is false, and caps with limit', async () => {
+    mockFetch(TRELLO_CARDS);
+    const cards = await listCards(ENV, BOARD_URL, { includeBody: false, limit: 1 });
+    expect(cards).toHaveLength(1); // limit applied
+    expect(cards[0].body).toBe(''); // body omitted even though desc is present
+  });
 });
 
 // ---------------------------------------------------------------------------
