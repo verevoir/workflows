@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 — 2026-05-26
+
+- **`CardFilter` gains `includeBody` + `limit`** for cheap list views. `includeBody` (default **true**, backward-compatible) set to `false` skips per-card body fetches — on Notion that's one `retrieveMarkdown` API call per row — and returns `Card.body === ''`; fetch a single body on demand with `getCard`. `limit` caps the number of cards returned (after filtering). Both honoured by the Notion and Trello adapters. Fixes large boards overflowing a consumer's result budget (STDIO-93).
+
 ## 0.3.1 — 2026-05-24
 
 - **Fix: Notion `createCard` + `updateCard` body posts.** The adapter was calling `pages.updateMarkdown` with `replace_content: { markdown: body }`; Notion's API actually expects `replace_content: { new_str: body }`. 0.3.0 always failed body posting with `body.replace_content.new_str should be defined`. Now corrected (with `allow_deleting_content: true` so an empty body cleanly clears the page).

@@ -183,6 +183,14 @@ export interface CardFilter {
    * backends use this for sub-tree reads; flat backends MAY return
    * an empty array (no children possible) or honour-as-no-op. */
   parentId?: string;
+  /** Include each card's Markdown `body`. Default **true**. Set
+   * `false` for list views to skip body fetches — on Notion that's
+   * one API call per row — and keep the payload small; fetch a single
+   * body on demand with `getCard`. When false, `Card.body` is `''`. */
+  includeBody?: boolean;
+  /** Cap the number of cards returned (applied after filtering).
+   * Omit for no cap. */
+  limit?: number;
 }
 
 /** Patch shape for `updateCard`. Only the fields present in the

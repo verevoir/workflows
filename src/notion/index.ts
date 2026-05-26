@@ -334,8 +334,13 @@ async function fetchBodyMarkdown(c: Client, pageId: string): Promise<string> {
   }
 }
 
-async function mapPageToCard(c: Client, page: PageObjectResponse, schema: DbSchema): Promise<Card> {
-  const body = await fetchBodyMarkdown(c, page.id);
+async function mapPageToCard(
+  c: Client,
+  page: PageObjectResponse,
+  schema: DbSchema,
+  includeBody = true
+): Promise<Card> {
+  const body = includeBody ? await fetchBodyMarkdown(c, page.id) : '';
   const status = readStatus(page, schema);
   const due = readDueDate(page);
   const readableId = readReadableId(page, schema);
@@ -476,7 +481,8 @@ export async function listCards(
   } catch (err) {
     throw mapError(err, `dataSources.query(${schema.dataSourceId})`);
   }
-  const mapped = await Promise.all(all.map((p) => mapPageToCard(c, p, schema)));
+  const includeBody = filter?.includeBody ?? true;
+  const mapped = await Promise.all(all.map((p) => mapPageToCard(c, p, schema, includeBody)));
   let results = mapped;
   if (filter?.columnId !== undefined) {
     results = results.filter((card) => card.columnId === filter.columnId);
@@ -486,6 +492,9 @@ export async function listCards(
   }
   if (filter?.labelId !== undefined) {
     results = results.filter((card) => card.labels.some((l) => l.id === filter.labelId));
+  }
+  if (filter?.limit !== undefined) {
+    results = results.slice(0, filter.limit);
   }
   return results;
 }

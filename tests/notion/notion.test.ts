@@ -261,6 +261,28 @@ describe('listCards', () => {
     });
   });
 
+  it('skips per-row body fetches when includeBody is false, and caps with limit', async () => {
+    clientStub.databases.retrieve.mockResolvedValue(dbWithDataSource());
+    clientStub.dataSources.retrieve.mockResolvedValue(schemaResponse());
+    clientStub.dataSources.query.mockResolvedValue({
+      results: [
+        fullPageRow('row-1', { title: 'A', statusOption: { id: 'col-todo', name: 'Todo' } }),
+        fullPageRow('row-2', { title: 'B', statusOption: { id: 'col-todo', name: 'Todo' } }),
+        fullPageRow('row-3', { title: 'C', statusOption: { id: 'col-todo', name: 'Todo' } }),
+      ],
+      has_more: false,
+      next_cursor: null,
+    });
+
+    const { listCards } = await import('../../src/notion/index.js');
+    const cards = await listCards(ENV, DB_URL, { includeBody: false, limit: 2 });
+
+    expect(cards).toHaveLength(2); // limit applied after mapping
+    expect(cards.every((c) => c.body === '')).toBe(true); // bodies omitted
+    // the expensive part — one retrieveMarkdown per row — is skipped entirely
+    expect(clientStub.pages.retrieveMarkdown).not.toHaveBeenCalled();
+  });
+
   it('honours columnId, assigneeId, labelId, parentId filters', async () => {
     clientStub.databases.retrieve.mockResolvedValue(dbWithDataSource());
     clientStub.dataSources.retrieve.mockResolvedValue(schemaResponse());
