@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 — 2026-05-29
+
+- **New: `@verevoir/workflows/obsidian`** — third WorkflowAdapter implementation, against a local [Obsidian Kanban plugin](https://github.com/obsidian-community/obsidian-kanban) board file (read + write). `boardUrl` is an absolute path or `file://` URL; no credentials.
+- Lanes (`## headings`) map to columns (lane name is the column id); cards are `- [ ] [[Note]]` board items.
+- **Linked notes are the source of truth.** A card's identity is the linked note's frontmatter `id`; its body is `Card.body`, its `tags` are labels, and a date field is the due date. The board file only records column placement + ordering, and is never mutated to assign identity. Cards that are plain text, unresolvable, or missing an `id` are skipped on reads and `404` when addressed.
+- Wikilinks resolve relative to the board folder first, then vault-wide (shortest-path) when `OBSIDIAN_VAULT_PATH` is set. `createCard` mints a UUID `id` and writes a new note to `OBSIDIAN_CARD_FOLDER` (default: the board's folder). `updateCard` title writes go to a frontmatter `title` field — the note file is never renamed, so wikilinks never break. `moveCard` rewrites only the board file's link line.
+- Config via env: `OBSIDIAN_VAULT_PATH`, `OBSIDIAN_ID_FIELD` (default `id`), `OBSIDIAN_CARD_FOLDER`, `OBSIDIAN_DATE_FIELD` (default `due`), `OBSIDIAN_TAGS_FIELD` (default `tags`). `isCardFresh` uses a composite note+board mtime version. Assignees and comments have no Obsidian equivalent — read empty, write `501`. `listCustomFields` returns `[]`.
+- Adds **`yaml`** as the package's first required runtime dependency (frontmatter parsing/editing, preserving unmanaged keys). Board-file frontmatter and the `%% kanban:settings %%` block are preserved verbatim; inter-lane whitespace is normalized to the plugin's canonical form on write.
+- 43 new tests across `board-format`, `wikilink`, `note`, and adapter-over-temp-vault suites.
+
 ## 0.4.0 — 2026-05-26
 
 - **`CardFilter` gains `includeBody` + `limit`** for cheap list views. `includeBody` (default **true**, backward-compatible) set to `false` skips per-card body fetches — on Notion that's one `retrieveMarkdown` API call per row — and returns `Card.body === ''`; fetch a single body on demand with `getCard`. `limit` caps the number of cards returned (after filtering). Both honoured by the Notion and Trello adapters. Fixes large boards overflowing a consumer's result budget (STDIO-93).

@@ -39,7 +39,6 @@ kanban-plugin: board
 
 - [x] [[Spike the markdown round-trip]]
 
-
 %% kanban:settings
 {"kanban-plugin":"board"}
 %%
@@ -59,6 +58,7 @@ due: 2026-06-02
 Route local paths through pickAdapter so aigency-web can open FS boards.
 
 ## Acceptance
+
 - Factory at /lib/source-router.ts
 - Tests cover GH + FS dispatch
 ```
@@ -147,7 +147,7 @@ and makes lossless writes fragile.
 - **`src/obsidian/index.ts`** — the adapter layer: path parsing
   (`parseObsidianBoardPath`), config from env, file I/O (the seam),
   contract method implementations, the aggregate `obsidian:
-  WorkflowAdapter` export, and `envFromObsidianProcessEnv()`.
+WorkflowAdapter` export, and `envFromObsidianProcessEnv()`.
 - **`tests/obsidian/board-format.test.ts`** — pure parse + round-trip.
 - **`tests/obsidian/wikilink.test.ts`** — wikilink parse + resolution.
 - **`tests/obsidian/note.test.ts`** — note frontmatter read/edit fidelity.
@@ -167,13 +167,13 @@ symmetry; the adapter ignores `env`. Optional behavior is read from
 `process.env` at call time (the pattern the Notion adapter uses for
 `NOTION_READABLE_ID_PROPERTY`):
 
-| Env var | Default | Purpose |
-|---|---|---|
-| `OBSIDIAN_VAULT_PATH` | _(unset)_ | Vault root for wikilink fallback resolution. When unset, only relative resolution is attempted. |
-| `OBSIDIAN_ID_FIELD` | `id` | Note frontmatter field holding the card identity (also surfaced as `readableId`). |
-| `OBSIDIAN_CARD_FOLDER` | board's folder | Where `createCard` writes new note files. |
-| `OBSIDIAN_DATE_FIELD` | `due` | Note frontmatter field for `Card.dueDate`. |
-| `OBSIDIAN_TAGS_FIELD` | `tags` | Note frontmatter field for `Card.labels`. |
+| Env var                | Default        | Purpose                                                                                         |
+| ---------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
+| `OBSIDIAN_VAULT_PATH`  | _(unset)_      | Vault root for wikilink fallback resolution. When unset, only relative resolution is attempted. |
+| `OBSIDIAN_ID_FIELD`    | `id`           | Note frontmatter field holding the card identity (also surfaced as `readableId`).               |
+| `OBSIDIAN_CARD_FOLDER` | board's folder | Where `createCard` writes new note files.                                                       |
+| `OBSIDIAN_DATE_FIELD`  | `due`          | Note frontmatter field for `Card.dueDate`.                                                      |
+| `OBSIDIAN_TAGS_FIELD`  | `tags`         | Note frontmatter field for `Card.labels`.                                                       |
 
 ## The `Board` model
 
@@ -196,7 +196,7 @@ interface BoardCard {
   /** Full board line, verbatim — re-emitted as-is unless this card is
    *  moved/created, preserving checkbox state and any trailing text. */
   rawLine: string;
-  checked: boolean;             // - [x] vs - [ ]
+  checked: boolean; // - [x] vs - [ ]
   /** Parsed wikilink target/alias, or undefined for a plain-text card. */
   link?: { target: string; alias?: string };
 }
@@ -207,23 +207,23 @@ with its resolved linked note.
 
 ## Contract mapping
 
-| Contract concept | Obsidian representation |
-|---|---|
-| `Column` | `## Lane heading`. `id` = lane name (unique within a board), `position` = index. |
-| `Card` | a `- [ ] [[Note]]` board item whose note resolves and carries an `id`. |
-| `Card.id` | linked-note frontmatter `id` (field name per `OBSIDIAN_ID_FIELD`). |
-| `Card.readableId` | same value as `id` (it is the human-facing identifier authors paste into commits/branches). |
-| `Card.title` | note frontmatter `title` ?? note filename (without `.md`). |
-| `Card.body` | the note's markdown body (after its frontmatter), verbatim. |
-| `Card.columnId` / `columnName` | the containing lane's name. |
-| `Card.labels` | note frontmatter `tags` (field per `OBSIDIAN_TAGS_FIELD`); each tag string is both `id` and `name`, no color. |
-| `Card.dueDate` | note frontmatter `due` (field per `OBSIDIAN_DATE_FIELD`), as ISO8601. |
-| `Card.url` | `file://` URL to the linked note file. |
-| `Card.lastActivity` | composite version `"<noteMtime>|<boardMtime>"` (see freshness). |
-| `Card.parentId` | flat. `listCards({parentId})` returns `[]`; setting `parentId` throws `WorkflowApiError(501)`. |
-| `Card.assigneeIds` | no native concept. Read `[]`; setting throws `501`. |
-| Comments | no native concept. `listComments` `[]`; `addComment` throws `501`. |
-| `customFields` | `listCustomFields` returns `[]`; per-card custom fields not surfaced in v0. |
+| Contract concept               | Obsidian representation                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `Column`                       | `## Lane heading`. `id` = lane name (unique within a board), `position` = index.                              |
+| `Card`                         | a `- [ ] [[Note]]` board item whose note resolves and carries an `id`.                                        |
+| `Card.id`                      | linked-note frontmatter `id` (field name per `OBSIDIAN_ID_FIELD`).                                            |
+| `Card.readableId`              | same value as `id` (it is the human-facing identifier authors paste into commits/branches).                   |
+| `Card.title`                   | note frontmatter `title` ?? note filename (without `.md`).                                                    |
+| `Card.body`                    | the note's markdown body (after its frontmatter), verbatim.                                                   |
+| `Card.columnId` / `columnName` | the containing lane's name.                                                                                   |
+| `Card.labels`                  | note frontmatter `tags` (field per `OBSIDIAN_TAGS_FIELD`); each tag string is both `id` and `name`, no color. |
+| `Card.dueDate`                 | note frontmatter `due` (field per `OBSIDIAN_DATE_FIELD`), as ISO8601.                                         |
+| `Card.url`                     | `file://` URL to the linked note file.                                                                        |
+| `Card.lastActivity`            | composite version `"<noteMtime>                                                                               | <boardMtime>"` (see freshness). |
+| `Card.parentId`                | flat. `listCards({parentId})` returns `[]`; setting `parentId` throws `WorkflowApiError(501)`.                |
+| `Card.assigneeIds`             | no native concept. Read `[]`; setting throws `501`.                                                           |
+| Comments                       | no native concept. `listComments` `[]`; `addComment` throws `501`.                                            |
+| `customFields`                 | `listCustomFields` returns `[]`; per-card custom fields not surfaced in v0.                                   |
 
 ### Finding a card by id
 
@@ -284,8 +284,8 @@ note files. `listColumns` reads only the board file.
 - **`obsidian.test.ts`** — adapter over a temp vault: `listColumns`,
   `listCards` (with id-less/plain cards skipped), `getCard`,
   `createCard` (note file + board link written), `updateCard` (frontmatter
-  + body + column move), `moveCard`; error cases — missing file → 404,
-  unknown/ id-less id → 404, `parentId`/assignee/`addComment` → 501.
+  - body + column move), `moveCard`; error cases — missing file → 404,
+    unknown/ id-less id → 404, `parentId`/assignee/`addComment` → 501.
 - CI runs `lint` → `typecheck` → `test` → `build`; all must pass.
 
 ## Risks & open questions
