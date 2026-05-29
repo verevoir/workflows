@@ -3,12 +3,16 @@
 // Obsidian Kanban "linked note" cards reference a note by wikilink:
 // `[[Target]]` or `[[Target|Alias]]`, optionally with a folder path in
 // the target (`[[folder/Note]]`). The parsed target is resolved to a
-// note file path — relative to the board folder first, then (when a
-// vault root is configured) vault-wide, mirroring Obsidian's
-// shortest-path resolution.
+// note path — relative to the board folder first, then (when a vault
+// fallback is enabled) vault-wide, mirroring Obsidian's shortest-path
+// resolution.
+//
+// Resolution goes through a `@verevoir/sources` SourceAdapter (the `fs`
+// adapter for local boards) rather than `node:fs` directly, so the same
+// logic resolves links in a GitHub-hosted vault unchanged. All paths
+// are root-relative, the space the SourceAdapter operates in.
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import type { SourceAdapter, SourceEnv } from '@verevoir/sources';
 
 export interface ParsedWikilink {
   target: string;
@@ -28,55 +32,76 @@ export function parseWikilink(text: string): ParsedWikilink | null {
   return { target: inner.slice(0, pipe).trim(), alias: inner.slice(pipe + 1).trim() };
 }
 
-/** Resolves a wikilink target to an absolute note file path.
- *
- * Strategy (decision 5): try relative to the board folder (and the
- * configured card folder) first; if unresolved and a vault root is
- * given, scan the vault for a matching basename, preferring the
- * shortest path (Obsidian's default). Returns null when nothing
- * matches.
- *
- * The target may already carry an extension or a folder path; `.md`
- * is appended when absent. */
-export function resolveWikilink(
-  target: string,
-  opts: { boardDir: string; cardDir?: string; vaultRoot?: string }
-): string | null {
-  const withExt = target.endsWith('.md') ? target : `${target}.md`;
-  const basename = withExt.slice(withExt.lastIndexOf('/') + 1);
+export interface ResolveOpts {
+  /** Board file's folder, relative to root ('' = root). */
+  boardDirRel: string;
+  /** Configured card folder, relative to root. */
+  cardDirRel?: string;
+  /** When true, fall back to a tree-wide scan if the relative
+   * candidates miss. Off when no vault root is configured — matching
+   * Obsidian's relative-only resolution without a vault. */
+  vaultFallback: boolean;
+}
 
-  const relativeCandidates = [join(opts.boardDir, withExt)];
-  if (opts.cardDir) relativeCandidates.push(join(opts.cardDir, withExt));
-  for (const candidate of relativeCandidates) {
-    if (existsSync(candidate) && statSync(candidate).isFile()) return resolve(candidate);
+/** Resolves a wikilink target to a note path *relative to root*, or
+ * null. Tries the board folder (then the card folder) first; on a
+ * miss, and when `vaultFallback` is on, scans the whole tree for a
+ * matching basename, preferring the shortest path and skipping
+ * dot-folders (`.obsidian`, `.git`, …). */
+export async function resolveWikilink(
+  source: SourceAdapter,
+  env: SourceEnv,
+  root: string,
+  target: string,
+  opts: ResolveOpts
+): Promise<string | null> {
+  const withExt = target.endsWith('.md') ? target : `${target}.md`;
+  const base = withExt.slice(withExt.lastIndexOf('/') + 1);
+
+  const candidates = [joinRel(opts.boardDirRel, withExt)];
+  if (opts.cardDirRel !== undefined) candidates.push(joinRel(opts.cardDirRel, withExt));
+  for (const rel of candidates) {
+    if (await exists(source, env, root, rel)) return rel;
   }
 
-  if (opts.vaultRoot) {
-    const hits = findByBasename(opts.vaultRoot, basename);
+  if (opts.vaultFallback) {
+    const { entries } = await source.getRepoTree(env, root);
+    const hits = entries
+      .filter((e) => e.type === 'blob')
+      .map((e) => e.path)
+      .filter((p) => p.slice(p.lastIndexOf('/') + 1) === base && !hasDotSegment(p));
     if (hits.length > 0) {
       hits.sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
-      return resolve(hits[0]);
+      return hits[0];
     }
   }
   return null;
 }
 
-function findByBasename(root: string, basename: string): string[] {
-  const out: string[] = [];
-  const walk = (dir: string): void => {
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue; // skip .obsidian, .git, etc.
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.isFile() && entry.name === basename) out.push(full);
-    }
-  };
-  walk(root);
-  return out;
+/** Cheap existence check — lists the parent directory and looks for
+ * the file, rather than reading its content. */
+async function exists(
+  source: SourceAdapter,
+  env: SourceEnv,
+  root: string,
+  rel: string
+): Promise<boolean> {
+  const slash = rel.lastIndexOf('/');
+  const dir = slash === -1 ? '' : rel.slice(0, slash);
+  const name = slash === -1 ? rel : rel.slice(slash + 1);
+  try {
+    const entries = await source.listFiles(env, root, dir);
+    return entries.some((e) => e.name === name && e.type === 'file');
+  } catch (err) {
+    if ((err as { status?: number }).status === 404) return false;
+    throw err;
+  }
+}
+
+function joinRel(dir: string, name: string): string {
+  return dir && dir !== '.' ? `${dir}/${name}` : name;
+}
+
+function hasDotSegment(p: string): boolean {
+  return p.split('/').some((seg) => seg.startsWith('.'));
 }

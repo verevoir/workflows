@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fs as fsSource } from '@verevoir/sources/fs';
 import { parseWikilink, resolveWikilink } from '../../src/obsidian/wikilink.js';
+
+// Resolution runs through the @verevoir/sources fs adapter, in
+// (root, relative-path) space — root is the vault, results are
+// root-relative note paths.
+const env = { token: '', forkOrg: '' };
 
 describe('parseWikilink', () => {
   it('parses a bare wikilink', () => {
@@ -43,33 +49,56 @@ describe('resolveWikilink', () => {
     rmSync(vault, { recursive: true, force: true });
   });
 
-  it('resolves a note next to the board file', () => {
-    const notePath = join(boardDir, 'Test Card.md');
-    writeFileSync(notePath, '# Test Card\n');
-    expect(resolveWikilink('Test Card', { boardDir })).toBe(notePath);
+  it('resolves a note next to the board file', async () => {
+    writeFileSync(join(boardDir, 'Test Card.md'), '# Test Card\n');
+    expect(
+      await resolveWikilink(fsSource, env, vault, 'Test Card', {
+        boardDirRel: 'TestBoard',
+        vaultFallback: false,
+      })
+    ).toBe('TestBoard/Test Card.md');
   });
 
-  it('appends .md when the target omits it', () => {
+  it('appends .md when the target omits it', async () => {
     writeFileSync(join(boardDir, 'Test Card.md'), '');
-    expect(resolveWikilink('Test Card', { boardDir })).toBe(join(boardDir, 'Test Card.md'));
+    expect(
+      await resolveWikilink(fsSource, env, vault, 'Test Card', {
+        boardDirRel: 'TestBoard',
+        vaultFallback: false,
+      })
+    ).toBe('TestBoard/Test Card.md');
   });
 
-  it('falls back to a vault-wide scan, preferring the shortest path', () => {
+  it('falls back to a vault-wide scan, preferring the shortest path', async () => {
     const deep = join(vault, 'a', 'b');
     mkdirSync(deep, { recursive: true });
-    const shallow = join(vault, 'Note.md');
     writeFileSync(join(deep, 'Note.md'), 'deep');
-    writeFileSync(shallow, 'shallow');
-    expect(resolveWikilink('Note', { boardDir, vaultRoot: vault })).toBe(shallow);
+    writeFileSync(join(vault, 'Note.md'), 'shallow');
+    expect(
+      await resolveWikilink(fsSource, env, vault, 'Note', {
+        boardDirRel: 'TestBoard',
+        vaultFallback: true,
+      })
+    ).toBe('Note.md');
   });
 
-  it('skips dot-directories during the vault scan', () => {
+  it('skips dot-directories during the vault scan', async () => {
     mkdirSync(join(vault, '.obsidian'), { recursive: true });
     writeFileSync(join(vault, '.obsidian', 'Hidden.md'), '');
-    expect(resolveWikilink('Hidden', { boardDir, vaultRoot: vault })).toBeNull();
+    expect(
+      await resolveWikilink(fsSource, env, vault, 'Hidden', {
+        boardDirRel: 'TestBoard',
+        vaultFallback: true,
+      })
+    ).toBeNull();
   });
 
-  it('returns null when nothing resolves', () => {
-    expect(resolveWikilink('Missing', { boardDir, vaultRoot: vault })).toBeNull();
+  it('returns null when nothing resolves', async () => {
+    expect(
+      await resolveWikilink(fsSource, env, vault, 'Missing', {
+        boardDirRel: 'TestBoard',
+        vaultFallback: true,
+      })
+    ).toBeNull();
   });
 });

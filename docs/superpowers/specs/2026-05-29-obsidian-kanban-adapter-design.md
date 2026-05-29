@@ -28,8 +28,8 @@ kanban-plugin: board
 
 ## To Do
 
-- [ ] [[Wire pickAdapter into aigency-web]]
-- [ ] [[Add tests for GH + FS dispatch]]
+- [ ] [[Draft the onboarding flow]]
+- [ ] [[Add tests for the parser]]
 
 ## In Progress
 
@@ -44,23 +44,23 @@ kanban-plugin: board
 %%
 ```
 
-…and a linked card note (`Wire pickAdapter into aigency-web.md`) looks
+…and a linked card note (`Draft the onboarding flow.md`) looks
 like:
 
 ```markdown
 ---
-id: STDIO-141
-title: Wire pickAdapter into aigency-web
+id: PROJ-141
+title: Draft the onboarding flow
 tags: [infra, adapter]
 due: 2026-06-02
 ---
 
-Route local paths through pickAdapter so aigency-web can open FS boards.
+Sketch the first-run experience and where each step routes.
 
 ## Acceptance
 
-- Factory at /lib/source-router.ts
-- Tests cover GH + FS dispatch
+- Flow documented in /docs/onboarding.md
+- Tests cover each step
 ```
 
 `## headings` are columns, `- [ ] [[Note]]` items are cards, and each
@@ -79,10 +79,12 @@ card's identity/content come from the linked note.
 
 ## Non-goals
 
-- Wiring the adapter into the `@verevoir/mcp` server or any
-  `pickAdapter` / source-router (separate repos).
-- Reading boards/notes from anywhere other than the local filesystem
-  (GitHub / `@verevoir/sources`-backed files) — designed for, not built.
+- Wiring the adapter into an MCP server or a board-source router
+  (separate repos).
+- A non-filesystem `@verevoir/sources` backend (e.g. a GitHub-hosted
+  vault). The adapter already runs on a `SourceAdapter`, so this is a
+  configuration change rather than a rewrite — but only the `fs`
+  adapter is wired in here.
 - Board-level custom-field schema (`listCustomFields` returns `[]` in v0).
 - Assignees and comments — no native Obsidian concept; stubbed (read
   empty, write `501`). Revisitable via note frontmatter later.
@@ -91,10 +93,14 @@ card's identity/content come from the linked note.
 
 These were settled during brainstorming and drive the rest of the design:
 
-1. **Board access — local path now, sources later.** `boardUrl` is an
-   absolute path or `file://` URL to the board `.md`. A clean internal
-   seam isolates file I/O so a GitHub/`@verevoir/sources`-backed variant
-   can be added later without touching the contract.
+1. **Board access — through a `@verevoir/sources` SourceAdapter.** All
+   file I/O (board, notes, vault scan, writes) goes through a
+   `SourceAdapter`, not `node:fs` directly — per ADR 019 (Source Adapters
+   as Foundation Libraries) and ADR 017 (no direct local clones). The `fs`
+   adapter is wired in for local boards (`boardUrl` is an absolute path or
+   `file://` URL); a GitHub/object-store-backed vault is then a swap of
+   the adapter instance, not a rewrite. The adapter operates in the
+   SourceAdapter's `(root, relative-path)` space.
 2. **Card identity — linked-note frontmatter `id`.** A card is a wikilink
    to a note; that note's `id` frontmatter field is `Card.id`. The
    adapter never mints anchors or otherwise mutates the board to create
@@ -115,9 +121,18 @@ These were settled during brainstorming and drive the rest of the design:
    frontmatter `title` ?? note filename. Writing a title sets the
    frontmatter `title` field and never renames the file, so the board
    wikilink and any backlinks elsewhere never break.
-7. **`yaml` runtime dependency.** Note and board frontmatter are parsed
-   and edited with the `yaml` package (comment/CST-preserving) rather than
-   a hand-rolled parser, for robustness against arbitrary frontmatter.
+7. **`yaml` for frontmatter, as an optional peer dependency.** Note and
+   board frontmatter are parsed and edited with the `yaml` package
+   (comment/CST-preserving) rather than a hand-rolled parser, for
+   robustness against arbitrary frontmatter. `yaml` and `@verevoir/sources`
+   are **optional peer dependencies** (mirroring the Notion adapter's
+   `@notionhq/client`), so Trello-/Notion-only consumers don't pull them.
+8. **Freshness — composite content sha.** `Card.lastActivity` is
+   `"<noteSha>|<boardSha>"`, the SourceAdapter's content shas for the note
+   and board files. The note component catches body/frontmatter edits; the
+   board component catches column moves/reordering. An opaque change handle
+   (per the contract), not a wall-clock timestamp — and content-based, so
+   it can't be fooled by mtime quirks.
 
 ## Architecture
 
@@ -139,15 +154,18 @@ and makes lossless writes fragile.
   `serializeBoard(board): string`. Knows nothing about the contract.
   Lossless: lanes/cards the adapter doesn't touch re-emit verbatim.
 - **`src/obsidian/wikilink.ts`** — parse `[[target|alias]]` board lines and
-  resolve a target to a note file path (relative-first, vault-root
-  fallback).
+  resolve a target to a note path (relative-first, then a tree-wide
+  fallback via the SourceAdapter's `getRepoTree`, skipping dot-folders).
+  Takes a `SourceAdapter` + root; holds no `node:fs`.
 - **`src/obsidian/note.ts`** — read/write a card note: split frontmatter
   (via `yaml`) from body, read managed fields, and apply edits while
   preserving unmanaged frontmatter keys and the body.
 - **`src/obsidian/index.ts`** — the adapter layer: path parsing
-  (`parseObsidianBoardPath`), config from env, file I/O (the seam),
-  contract method implementations, the aggregate `obsidian:
-WorkflowAdapter` export, and `envFromObsidianProcessEnv()`.
+  (`parseObsidianBoardPath`), config from env, the `layout()` seam that
+  maps a `boardUrl` onto SourceAdapter `(root, relative-path)` coordinates,
+  all I/O via `@verevoir/sources/fs`, contract method implementations, the
+  aggregate `obsidian: WorkflowAdapter` export, and
+  `envFromObsidianProcessEnv()`.
 - **`tests/obsidian/board-format.test.ts`** — pure parse + round-trip.
 - **`tests/obsidian/wikilink.test.ts`** — wikilink parse + resolution.
 - **`tests/obsidian/note.test.ts`** — note frontmatter read/edit fidelity.
@@ -156,7 +174,9 @@ WorkflowAdapter` export, and `envFromObsidianProcessEnv()`.
 ### Packaging
 
 - `package.json`: add the `./obsidian` export subpath (mirroring
-  `./trello` and `./notion`), and add **`yaml`** to `dependencies`.
+  `./trello` and `./notion`), and add **`yaml`** and **`@verevoir/sources`**
+  as **optional peer dependencies** (mirroring `@notionhq/client`), with
+  dev-dependency entries for the build/test gate.
 - Update `README.md` (Subpaths + a usage block), `llms.txt`, and
   `CHANGELOG.md`.
 
@@ -208,7 +228,7 @@ with its resolved linked note.
 ## Contract mapping
 
 | Contract concept               | Obsidian representation                                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | `Column`                       | `## Lane heading`. `id` = lane name (unique within a board), `position` = index.                              |
 | `Card`                         | a `- [ ] [[Note]]` board item whose note resolves and carries an `id`.                                        |
 | `Card.id`                      | linked-note frontmatter `id` (field name per `OBSIDIAN_ID_FIELD`).                                            |
@@ -219,7 +239,7 @@ with its resolved linked note.
 | `Card.labels`                  | note frontmatter `tags` (field per `OBSIDIAN_TAGS_FIELD`); each tag string is both `id` and `name`, no color. |
 | `Card.dueDate`                 | note frontmatter `due` (field per `OBSIDIAN_DATE_FIELD`), as ISO8601.                                         |
 | `Card.url`                     | `file://` URL to the linked note file.                                                                        |
-| `Card.lastActivity`            | composite version `"<noteMtime>                                                                               | <boardMtime>"` (see freshness). |
+| `Card.lastActivity`            | composite version `"<noteSha>                                                                                 | <boardSha>"` (see freshness). |
 | `Card.parentId`                | flat. `listCards({parentId})` returns `[]`; setting `parentId` throws `WorkflowApiError(501)`.                |
 | `Card.assigneeIds`             | no native concept. Read `[]`; setting throws `501`.                                                           |
 | Comments                       | no native concept. `listComments` `[]`; `addComment` throws `501`.                                            |
@@ -228,10 +248,12 @@ with its resolved linked note.
 ### Finding a card by id
 
 `getCard`/`updateCard`/`moveCard` take a `cardId`. The adapter parses the
-board, walks each lane's link cards, resolves each note, and matches its
-frontmatter `id`. Not found (including plain-text or id-less cards) →
-`WorkflowApiError(404)`. This is O(cards) note reads per addressed
-operation; acceptable for v0, with per-call caching as a later refinement.
+board and walks each lane's link cards, resolving notes and matching the
+frontmatter `id`, **short-circuiting on the first match**. Not found
+(including plain-text or id-less cards) → `WorkflowApiError(404)`. This is
+O(cards) note reads in the worst case (id absent); a cross-call id→path
+index is the later refinement. With the SourceAdapter seam this would live
+in `@verevoir/context` rather than being hand-rolled here.
 
 ### Read behavior — no file mutation
 
@@ -264,11 +286,12 @@ note files. `listColumns` reads only the board file.
 - `WorkflowApiError(501)` — unsupported writes: `parentId`, assignees,
   `addComment`.
 - `isCardFresh(env, boardUrl, cardId, version)` parses `version` as
-  `"<noteMtime>|<boardMtime>"` and compares both components against the
-  current note-file and board-file mtimes. The note component catches
-  content edits; the board component catches column moves/reordering.
-  File-mtime granularity means any board edit invalidates all held
-  versions — accepted for v0 and documented.
+  `"<noteSha>|<boardSha>"` and compares both components against the
+  SourceAdapter's current note-file and board-file content shas. The note
+  component catches content edits; the board component catches column
+  moves/reordering. Content-based rather than mtime-based, so it can't be
+  fooled by clock granularity; any board edit invalidates all held
+  versions (the board sha shifts) — accepted for v0 and documented.
 
 ## Testing strategy
 
@@ -291,20 +314,26 @@ note files. `listColumns` reads only the board file.
 ## Risks & open questions
 
 - **Find-by-id cost.** Addressing a card resolves notes across the board
-  until the id matches — O(cards) reads. Fine for typical boards;
-  per-operation caching can refine it later.
-- **Coarse freshness.** Board-file mtime in the composite version churns
+  until the id matches (short-circuiting on the match) — O(cards) reads in
+  the worst case. Fine for typical boards; a cross-call id→path index in
+  `@verevoir/context` is the refinement.
+- **Coarse freshness.** The board-file sha in the composite version churns
   all cards' freshness on any board edit. Safe (over-invalidates), never
   unsafe.
 - **Wikilink resolution ambiguity.** Without `OBSIDIAN_VAULT_PATH`, only
   relative resolution runs; vault-wide shortest-path resolution requires
-  the configured vault root and a directory scan.
+  the configured vault root and a `getRepoTree` scan.
+- **Vault-scan cap.** The tree-wide fallback uses the SourceAdapter's
+  `getRepoTree`, which caps at the adapter's tree limit (5000 entries for
+  `fs`) and skips its ignored dirs. A vault larger than the cap could miss
+  a deep note in fallback resolution — acceptable for v0.
 - **Mixed boards.** Boards mixing plain-text and linked-note cards work,
   but the plain-text cards are invisible to consumers (skipped). This is
   intentional per decision 4; worth calling out to users.
-- **`yaml` dependency.** First required runtime dependency for the
-  package; acceptable given robust frontmatter editing is core to the
-  linked-note model.
+- **`yaml` + `@verevoir/sources` peer deps.** Both are optional peer
+  dependencies; a consumer using the Obsidian subpath must have them
+  installed (as a Notion consumer must have `@notionhq/client`). Trello-
+  and Notion-only consumers pull neither.
 
 ## Design history
 
