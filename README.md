@@ -19,6 +19,7 @@ Direct in-process consumption (the usage shown below) is for: writing your own M
 - `@verevoir/workflows` — contract module: `WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`.
 - `@verevoir/workflows/trello` — Trello adapter (read + write).
 - `@verevoir/workflows/notion` — Notion-database adapter (read + write) via `@notionhq/client` (optional peer dep). Maps a Notion database to the WorkflowAdapter contract: rows are cards, the auto-detected status / select property provides columns, the people property gives assignees, the multi_select property gives labels. Body content round-trips through Notion's native `pages.retrieveMarkdown` / `pages.updateMarkdown`.
+- `@verevoir/workflows/obsidian` — [Obsidian Kanban plugin](https://github.com/obsidian-community/obsidian-kanban) adapter (read + write) over a local board `.md` file. No credentials — `boardUrl` is an absolute path or `file://` URL. Lanes (`## headings`) are columns; cards are `- [ ] [[Note]]` wikilinks whose **linked note** is the source of truth: the note's frontmatter `id` is the card identity, its body is `Card.body`, its `tags` are labels, and a date field is the due date. Cards without a resolvable `id` are skipped on reads and 404 when addressed; the board file is never mutated to assign identity. File I/O goes through `@verevoir/sources` (the `fs` adapter for local boards), and frontmatter handling uses the `yaml` package — both are **optional peer dependencies** (like `@notionhq/client` for Notion), required only when you use this subpath.
 
 ## Install
 
@@ -57,6 +58,32 @@ const fresh = await trello.createCard(env, boardUrl, columns[0].id, {
 });
 ```
 
+## Usage — Obsidian Kanban
+
+```ts
+import { obsidian } from '@verevoir/workflows/obsidian';
+
+// No credentials. Point at a local Obsidian Kanban board file.
+// Set OBSIDIAN_VAULT_PATH so vault-wide `[[wikilink]]` resolution works.
+const env = { token: '' };
+const boardUrl = '/path/to/Vault/Board/My-Board.md';
+
+const columns = await obsidian.listColumns(env, boardUrl); // lanes
+const cards = await obsidian.listCards(env, boardUrl); // linked notes with an `id`
+
+// Create a card — writes a new note (with a minted `id`) and links it.
+const card = await obsidian.createCard(env, boardUrl, columns[0].id, {
+  title: 'Draft the spec',
+  body: '# Draft the spec\n\n- [ ] outline\n',
+  labelIds: ['planning'],
+});
+
+// Move it across lanes (rewrites only the board file's link line).
+await obsidian.moveCard(env, boardUrl, card.id, columns[1].id);
+```
+
+Cards are Obsidian Kanban **linked notes**: each `- [ ] [[Note]]` item resolves to a note whose frontmatter `id` is the card identity and whose body/tags supply the card content. Cards that are plain text or lack a resolvable `id` are skipped on reads. The board file is never mutated to assign identity. Assignees and comments have no Obsidian equivalent — they read empty and reject writes with `WorkflowApiError(501)`.
+
 ## The contract
 
 ```ts
@@ -87,6 +114,7 @@ For the Notion adapter specifically, `readableId` reads from the property named 
 Each adapter packs its auth shape into `WorkflowEnv.token`:
 
 - **Trello** — `"<apiKey>:<apiToken>"` (split on first `:`).
+- **Obsidian** — none; the adapter reads local files only. `envFromObsidianProcessEnv()` returns `{ token: '' }`.
 - **Jira** (future) — `"<email>:<api-token>"` (basic auth).
 - **Notion** (future) — `"<integration-token>"` (single value).
 - **Linear** (future) — `"<api-key>"` (single value).

@@ -19,6 +19,7 @@ Direct in-process use (below) is for: writing your own MCP server, building a ne
 - `@verevoir/workflows` — contract module: `WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`.
 - `@verevoir/workflows/trello` — Trello adapter (read + write).
 - `@verevoir/workflows/notion` — Notion-database adapter (read + write) via `@notionhq/client` (optional peer dep). Auto-detects property mapping (title / status / people / multi_select). Body via native `pages.retrieveMarkdown` / `pages.updateMarkdown`.
+- `@verevoir/workflows/obsidian` — Obsidian Kanban adapter (read + write) over a local board `.md` file. `boardUrl` is an absolute path or `file://` URL; no credentials. Lanes (`## headings`) are columns; cards are `- [ ] [[Note]]` wikilinks. The **linked note** is the source of truth: its frontmatter `id` is the card identity, its body is `Card.body`, its `tags` are labels. Cards without a resolvable `id` are skipped on reads and 404 when addressed. File I/O goes through `@verevoir/sources` (the `fs` adapter); `@verevoir/sources` + `yaml` are optional peer deps (like `@notionhq/client` for Notion). Tuned via env: `OBSIDIAN_VAULT_PATH`, `OBSIDIAN_ID_FIELD` (default `id`), `OBSIDIAN_CARD_FOLDER`, `OBSIDIAN_DATE_FIELD` (default `due`), `OBSIDIAN_TAGS_FIELD` (default `tags`). No assignees/comments (read empty, write `501`).
 
 Future: `@verevoir/workflows/jira`, `@verevoir/workflows/linear`, `@verevoir/workflows/github-issues`, `@verevoir/workflows/aigency-objectives`.
 
@@ -73,6 +74,7 @@ interface WorkflowAdapter {
 Each adapter packs its auth shape into `WorkflowEnv.token`:
 
 - **Trello** — `"<apiKey>:<apiToken>"` (split on first `:`). Optional `referer` for origin-scoped Power-Up keys (set `TRELLO_REFERER`).
+- **Obsidian** — none. `envFromObsidianProcessEnv()` returns `{ token: '' }`; the adapter reads only local files.
 - **Jira** (future) — `"<email>:<api-token>"` (basic auth).
 - **Notion** (future) — `"<integration-token>"` (single value).
 - **Linear** (future) — `"<api-key>"` (single value).
