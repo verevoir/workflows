@@ -1,5 +1,7 @@
 // @verevoir/workflows/obsidian — Obsidian Kanban WorkflowAdapter
 //
+// Contributed by Kevin Ashton.
+//
 // Maps the WorkflowAdapter contract onto an Obsidian Kanban board:
 //   - boardUrl is an absolute path (or file:// URL) to the board .md.
 //   - A `## heading` is a Column; its id is the lane name.

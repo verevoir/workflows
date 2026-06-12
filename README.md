@@ -143,6 +143,10 @@ Adapters that don't support custom fields (Trello v0) return `[]` from `listCust
 - [`@verevoir/context`](https://github.com/verevoir/context) — in-process cache for content + symbols. Fronts file sources today; will front workflow sources when read patterns warrant.
 - [`@verevoir/llm`](https://github.com/verevoir/llm) — provider-agnostic LLM call surface.
 
+## Credits
+
+The Obsidian Kanban adapter (`@verevoir/workflows/obsidian`) was contributed by **Kevin Ashton**.
+
 ## License
 
 Apache-2.0.
