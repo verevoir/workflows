@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2 — 2026-06-12
+
+Housekeeping (STDIO-188): credit **Kevin Ashton** for the Obsidian Kanban adapter — in the adapter source header, a README "Credits" section, and the `llms.txt` entry. No behaviour change.
+
 ## 0.5.0 — 2026-05-29
 
 - **New: `@verevoir/workflows/obsidian`** — third WorkflowAdapter implementation, against a local [Obsidian Kanban plugin](https://github.com/obsidian-community/obsidian-kanban) board file (read + write). `boardUrl` is an absolute path or `file://` URL; no credentials.
