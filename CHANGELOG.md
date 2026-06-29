@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3 — 2026-06-29
+
+Security (STDIO-429): override `vite` to `^8.0.16`, resolving the high-severity `server.fs.deny` bypass advisory (GHSA-fx2h-pf6j-xcff; vulnerable 8.0.0–8.0.15, pulled transitively via vitest). Dev-only transitive; no runtime change.
+
 ## 0.5.2 — 2026-06-12
 
 Housekeeping (STDIO-188): credit **Kevin Ashton** for the Obsidian Kanban adapter — in the adapter source header, a README "Credits" section, and the `llms.txt` entry. No behaviour change.
