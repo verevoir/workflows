@@ -1,6 +1,6 @@
 {
   "name": "@verevoir/workflows",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Workflow-adapter primitive: a contract over kanban/issue/objective sources (cards with status, assignee, labels) with implementations as subpath imports. Trello today; Jira, Notion DBs, Linear, GitHub Issues, aigency objectives follow.",
   "license": "Apache-2.0",
   "type": "module",
@@ -67,6 +67,9 @@
     "typescript": "^5",
     "vitest": "^4",
     "yaml": "^2.9.0"
+  },
+  "overrides": {
+    "vite": "^8.0.16"
   },
   "publishConfig": {
     "access": "public"
