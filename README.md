@@ -20,6 +20,7 @@ Direct in-process consumption (the usage shown below) is for: writing your own M
 - `@verevoir/workflows/trello` — Trello adapter (read + write).
 - `@verevoir/workflows/notion` — Notion-database adapter (read + write) via `@notionhq/client` (optional peer dep). Maps a Notion database to the WorkflowAdapter contract: rows are cards, the auto-detected status / select property provides columns, the people property gives assignees, the multi_select property gives labels. Body content round-trips through Notion's native `pages.retrieveMarkdown` / `pages.updateMarkdown`.
 - `@verevoir/workflows/obsidian` — [Obsidian Kanban plugin](https://github.com/obsidian-community/obsidian-kanban) adapter (read + write) over a local board `.md` file. No credentials — `boardUrl` is an absolute path or `file://` URL. Lanes (`## headings`) are columns; cards are `- [ ] [[Note]]` wikilinks whose **linked note** is the source of truth: the note's frontmatter `id` is the card identity, its body is `Card.body`, its `tags` are labels, and a date field is the due date. Cards without a resolvable `id` are skipped on reads and 404 when addressed; the board file is never mutated to assign identity. File I/O goes through `@verevoir/sources` (the `fs` adapter for local boards), and frontmatter handling uses the `yaml` package — both are **optional peer dependencies** (like `@notionhq/client` for Notion), required only when you use this subpath.
+- `@verevoir/workflows/backlog` — [Backlog.md](https://backlog.md) adapter (read + write) over a project's `backlog/` directory of markdown task files. No credentials — `boardUrl` is an absolute path (or `file://` URL) to the project root or the `backlog/` dir. Columns are the `statuses` from `backlog/config.yml` (default `To Do` / `In Progress` / `Done` when absent); each `backlog/tasks/*.md` is a card whose frontmatter carries `id` (identity, falling back to the filename stem), `title`, `status` (the column), `labels`, `assignee`, and `parent_task_id` (sub-tasks), with the markdown body as `Card.body`. `createCard` allocates the next `task-N` id; edits preserve unmanaged frontmatter (e.g. `created_date`). Same `@verevoir/sources` + `yaml` **optional peer dependencies** as the Obsidian subpath. Use it to plan and track work in a project repository as plain, committable files.
 
 ## Install
 
@@ -83,6 +84,31 @@ await obsidian.moveCard(env, boardUrl, card.id, columns[1].id);
 ```
 
 Cards are Obsidian Kanban **linked notes**: each `- [ ] [[Note]]` item resolves to a note whose frontmatter `id` is the card identity and whose body/tags supply the card content. Cards that are plain text or lack a resolvable `id` are skipped on reads. The board file is never mutated to assign identity. Assignees and comments have no Obsidian equivalent — they read empty and reject writes with `WorkflowApiError(501)`.
+
+## Usage — Backlog.md
+
+```ts
+import { backlog } from '@verevoir/workflows/backlog';
+
+// No credentials. Point at a repo that has a `backlog/` directory.
+const env = { token: '' };
+const boardUrl = '/path/to/repo'; // or '/path/to/repo/backlog'
+
+const columns = await backlog.listColumns(env, boardUrl); // config.yml `statuses`
+const cards = await backlog.listCards(env, boardUrl); // backlog/tasks/*.md
+
+// Create a task — writes `backlog/tasks/task-N - <title>.md` with frontmatter.
+const card = await backlog.createCard(env, boardUrl, 'To Do', {
+  title: 'Draft the spec',
+  body: '## Acceptance\n\n- [ ] outline\n',
+  labelIds: ['planning'],
+});
+
+// Move it across statuses (rewrites the task file's `status` frontmatter).
+await backlog.moveCard(env, boardUrl, card.id, 'In Progress');
+```
+
+Each `backlog/tasks/*.md` is a card: frontmatter carries `id`, `title`, `status` (the column), `labels`, `assignee`, and `parent_task_id`; the body is the description. Plan and track work as plain files committed alongside the code. Edits preserve unmanaged frontmatter; comments have no Backlog equivalent (read empty, reject writes with `WorkflowApiError(501)`).
 
 ## The contract
 
