@@ -26,6 +26,10 @@
     "./backlog": {
       "types": "./dist/backlog/index.d.ts",
       "import": "./dist/backlog/index.js"
+    },
+    "./backlog/resource": {
+      "types": "./dist/backlog/resource.d.ts",
+      "import": "./dist/backlog/resource.js"
     }
   },
   "files": [
