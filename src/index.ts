@@ -28,16 +28,31 @@
 // surface, whose lifecycle-verb shape says things this contract's
 // CRUD shape could not.
 
-export type { Claim, ClaimRequest, ClaimOutcome, ClaimingAdapter } from './claim.js';
+export type {
+  ResourceRef,
+  Resource,
+  ResourceClaim,
+  ResourceTypeDescriptor,
+  ResourceCapability,
+  ResourceFieldDef,
+  ResourceFilter,
+  ResourcePatch,
+  ResourceCreate,
+  ResourceAdapter,
+} from './resource.js';
+export { byRank, STATE_IS_NOT_A_FIELD } from './resource.js';
+
+export type { ClaimRequest, ClaimOutcome, ClaimingResourceAdapter } from './claim.js';
 export { canClaim } from './claim.js';
 
 export type {
   EntryCondition,
-  ColumnPolicy,
+  StatePolicy,
   TransitionPolicy,
   ConditionResult,
   ConditionChecker,
   TransitionOutcome,
+  TransitioningResourceAdapter,
 } from './transitions.js';
 export {
   requirementsFor,
@@ -45,7 +60,8 @@ export {
   entryHolds,
   refusalReason,
   describe,
-  moveStoryTo,
+  transitionResource,
+  canTransition,
 } from './transitions.js';
 
 export { httpConditionChecker, firstCheckerToAnswer } from './checkers.js';

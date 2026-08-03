@@ -1,6 +1,6 @@
 // Guarded transitions — a column you may only enter once its claim is true.
 //
-// A plain `moveCard` writes a state; it does not check the state is warranted.
+// A plain state write does not check the state is warranted.
 // So "in preview" comes to mean "somebody moved the card", and the board says
 // a thing is deployed when nothing looked. The column names a claim about the
 // world — deployed to preview, live in production — and the move should be
@@ -17,7 +17,8 @@
 // having it — the board would carry the same unearned claim, now with the
 // appearance of having been verified.
 
-import type { WorkflowAdapter, WorkflowEnv } from './index.js';
+import type { WorkflowEnv } from './index.js';
+import type { Resource, ResourceRef } from './resource.js';
 
 /** A condition that must hold before a card may enter a column.
  *
@@ -51,8 +52,8 @@ export type EntryCondition =
   | { kind: 'manual'; prompt: string };
 
 /** What a column demands of anything entering it. */
-export interface ColumnPolicy {
-  columnId: string;
+export interface StatePolicy {
+  state: string;
   /** ALL must hold. Empty means the column is freely enterable — which is the
    * right default for the early columns of most boards. */
   requires: readonly EntryCondition[];
@@ -61,7 +62,7 @@ export interface ColumnPolicy {
 /** A board's transition rules. Columns absent from `columns` are freely
  * enterable, so a policy only has to state the columns that guard something. */
 export interface TransitionPolicy {
-  columns: readonly ColumnPolicy[];
+  states: readonly StatePolicy[];
 }
 
 export type ConditionResult =
@@ -79,22 +80,45 @@ export type ConditionResult =
 export type ConditionChecker = (condition: EntryCondition) => Promise<ConditionResult>;
 
 export type TransitionOutcome =
-  | { outcome: 'moved'; toColumnId: string; results: readonly ConditionResult[] }
-  | { outcome: 'refused'; toColumnId: string; results: readonly ConditionResult[]; reason: string };
+  | { outcome: 'moved'; toState: string; resource: Resource; results: readonly ConditionResult[] }
+  | { outcome: 'refused'; toState: string; results: readonly ConditionResult[]; reason: string }
+  /** The conditional write lost: someone changed the resource between the read
+   * and the write. The conditions held; the world moved underneath them. */
+  | { outcome: 'conflict'; toState: string; results: readonly ConditionResult[]; reason: string };
+
+/** The write half of a transition, which only the backend can do safely: set
+ * the state conditional on `expectRevision`, so a lost race is reported rather
+ * than overwriting whoever won it. */
+export interface TransitioningResourceAdapter {
+  setState(
+    env: WorkflowEnv,
+    sourceUrl: string,
+    ref: ResourceRef,
+    toState: string,
+    options?: { expectRevision?: string }
+  ): Promise<{ ok: true; resource: Resource } | { ok: false; conflict: string }>;
+}
+
+/** Whether this adapter can move state conditionally. */
+export function canTransition<T extends object>(
+  adapter: T
+): adapter is T & TransitioningResourceAdapter {
+  return typeof (adapter as Partial<TransitioningResourceAdapter>).setState === 'function';
+}
 
 /** The conditions a column imposes. Empty for an unguarded column. */
 export function requirementsFor(
   policy: TransitionPolicy | undefined,
-  columnId: string
+  state: string
 ): readonly EntryCondition[] {
   if (!policy) return [];
   // First match wins, and duplicates are not merged: a policy listing a column
   // twice is a config mistake, and silently unioning the two would enforce a
   // rule set nobody wrote.
-  return policy.columns.find((c) => c.columnId === columnId)?.requires ?? [];
+  return policy.states.find((s) => s.state === state)?.requires ?? [];
 }
 
-/** Evaluate every condition guarding `columnId`.
+/** Evaluate every condition guarding `state`.
  *
  * ALL of them run, including after one has already failed. A caller told only
  * about the first problem fixes it, re-runs, and is told about the next —
@@ -102,10 +126,10 @@ export function requirementsFor(
  * attempt sufficient. */
 export async function checkEntry(
   policy: TransitionPolicy | undefined,
-  columnId: string,
+  state: string,
   check: ConditionChecker
 ): Promise<readonly ConditionResult[]> {
-  const required = requirementsFor(policy, columnId);
+  const required = requirementsFor(policy, state);
   return Promise.all(
     required.map(async (condition) => {
       try {
@@ -129,7 +153,7 @@ export function entryHolds(results: readonly ConditionResult[]): boolean {
 
 /** Why the move was refused, naming each condition that did not hold and what
  * was observed — so the reader can act without re-running anything. */
-export function refusalReason(columnId: string, results: readonly ConditionResult[]): string {
+export function refusalReason(state: string, results: readonly ConditionResult[]): string {
   const blocking = results.filter((r) => r.status !== 'held');
   const lines = blocking.map((r) =>
     r.status === 'failed'
@@ -140,7 +164,7 @@ export function refusalReason(columnId: string, results: readonly ConditionResul
   const note = unknowns
     ? `\n${unknowns} of these could not be checked. That is not a pass: the column would be claiming something nothing verified.`
     : '';
-  return `"${columnId}" was not entered — ${blocking.length} of its ${results.length} entry conditions did not hold:\n${lines.join('\n')}${note}`;
+  return `"${state}" was not entered — ${blocking.length} of its ${results.length} entry conditions did not hold:\n${lines.join('\n')}${note}`;
 }
 
 /** A condition in words, for a message a person or a model reads. */
@@ -160,42 +184,70 @@ export function describe(condition: EntryCondition): string {
 }
 
 /**
- * Move a card into a column, but only once that column's entry conditions hold.
+ * Move a resource into a state, but only once that state's entry conditions
+ * hold — and then only if nobody else has moved it meanwhile.
  *
  * A free function over the adapter rather than a method on it: the guard is
- * identical for every backend, and five adapters implementing it separately is
- * five chances to get the fail-open case wrong.
+ * identical for every backend, and each adapter implementing it separately is
+ * another chance to get the fail-open case wrong. The adapter supplies only the
+ * conditional write, which is the part that genuinely differs.
  *
- * The adapter's `moveCard` is not called at all on a refusal — the board is
- * left exactly as it was, so a refused transition is indistinguishable from one
- * never attempted.
+ * `setState` is not called at all on a refusal — the resource is left exactly
+ * as it was, so a refused transition is indistinguishable from one never
+ * attempted.
  */
-export async function moveStoryTo(
-  adapter: Pick<WorkflowAdapter, 'moveCard'>,
+export async function transitionResource(
+  adapter: TransitioningResourceAdapter,
   env: WorkflowEnv,
-  boardUrl: string,
-  cardId: string,
-  toColumnId: string,
-  options: { policy?: TransitionPolicy; check?: ConditionChecker } = {}
+  sourceUrl: string,
+  ref: ResourceRef,
+  toState: string,
+  options: {
+    policy?: TransitionPolicy;
+    check?: ConditionChecker;
+    /** The revision the caller read. Supplying it makes the write conditional,
+     * so a resource someone else moved in the meantime reports `conflict`
+     * rather than silently overwriting them. */
+    expectRevision?: string;
+  } = {}
 ): Promise<TransitionOutcome> {
-  const required = requirementsFor(options.policy, toColumnId);
+  const required = requirementsFor(options.policy, toState);
 
-  // A guarded column with no checker supplied is a caller mistake, and the safe
-  // reading of it is refusal: the conditions exist and nothing evaluated them.
+  // A guarded state with no checker supplied is a caller mistake, and the safe
+  // reading is refusal: the conditions exist and nothing evaluated them.
   const check: ConditionChecker =
     options.check ??
     (async (condition) => ({
       status: 'unknown',
       condition,
-      reason: 'no condition checker was supplied to moveStoryTo',
+      reason: 'no condition checker was supplied to transitionResource',
     }));
 
-  const results = required.length ? await checkEntry(options.policy, toColumnId, check) : [];
+  const results = required.length ? await checkEntry(options.policy, toState, check) : [];
 
   if (!entryHolds(results)) {
-    return { outcome: 'refused', toColumnId, results, reason: refusalReason(toColumnId, results) };
+    return { outcome: 'refused', toState, results, reason: refusalReason(toState, results) };
   }
 
-  await adapter.moveCard(env, boardUrl, cardId, toColumnId);
-  return { outcome: 'moved', toColumnId, results };
+  const written = await adapter.setState(
+    env,
+    sourceUrl,
+    ref,
+    toState,
+    options.expectRevision === undefined ? {} : { expectRevision: options.expectRevision }
+  );
+
+  // The conditions held and the write still lost. Reported as its own outcome
+  // rather than as a refusal: nothing is wrong with the change, and the caller
+  // should re-read and retry rather than go looking for a failing check.
+  if (!written.ok) {
+    return {
+      outcome: 'conflict',
+      toState,
+      results,
+      reason: `"${toState}" was not entered — the resource changed between the read and the write (${written.conflict}). Re-read it and try again.`,
+    };
+  }
+
+  return { outcome: 'moved', toState, resource: written.resource, results };
 }
