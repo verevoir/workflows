@@ -16,11 +16,100 @@ Direct in-process consumption (the usage shown below) is for: writing your own M
 
 ## Subpaths
 
-- `@verevoir/workflows` — contract module: `WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`.
+- `@verevoir/workflows` — contract module: `WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`. Also the two **lifecycle** operations described below — `claim` / `release` (`ClaimingAdapter`, `canClaim`) and `moveStoryTo` with its `TransitionPolicy`.
 - `@verevoir/workflows/trello` — Trello adapter (read + write).
 - `@verevoir/workflows/notion` — Notion-database adapter (read + write) via `@notionhq/client` (optional peer dep). Maps a Notion database to the WorkflowAdapter contract: rows are cards, the auto-detected status / select property provides columns, the people property gives assignees, the multi_select property gives labels. Body content round-trips through Notion's native `pages.retrieveMarkdown` / `pages.updateMarkdown`.
 - `@verevoir/workflows/obsidian` — [Obsidian Kanban plugin](https://github.com/obsidian-community/obsidian-kanban) adapter (read + write) over a local board `.md` file. No credentials — `boardUrl` is an absolute path or `file://` URL. Lanes (`## headings`) are columns; cards are `- [ ] [[Note]]` wikilinks whose **linked note** is the source of truth: the note's frontmatter `id` is the card identity, its body is `Card.body`, its `tags` are labels, and a date field is the due date. Cards without a resolvable `id` are skipped on reads and 404 when addressed; the board file is never mutated to assign identity. File I/O goes through `@verevoir/sources` (the `fs` adapter for local boards), and frontmatter handling uses the `yaml` package — both are **optional peer dependencies** (like `@notionhq/client` for Notion), required only when you use this subpath.
 - `@verevoir/workflows/backlog` — [Backlog.md](https://backlog.md) adapter (read + write) over a project's `backlog/` directory of markdown task files. No credentials — `boardUrl` is an absolute path (or `file://` URL) to the project root or the `backlog/` dir. Columns are the `statuses` from `backlog/config.yml` (default `To Do` / `In Progress` / `Done` when absent); each `backlog/tasks/*.md` is a card whose frontmatter carries `id` (identity, falling back to the filename stem), `title`, `status` (the column), `labels`, `assignee`, and `parent_task_id` (sub-tasks), with the markdown body as `Card.body`. `createCard` allocates the next `task-N` id; edits preserve unmanaged frontmatter (e.g. `created_date`). Same `@verevoir/sources` + `yaml` **optional peer dependencies** as the Obsidian subpath. Use it to plan and track work in a project repository as plain, committable files.
+
+## Lifecycle: claiming, and transitions that mean something
+
+CRUD moves cards. It cannot say either of the two things a workflow actually
+turns on, so both are modelled explicitly — taking the shape from the agentic
+product platform's tool surface, whose lifecycle verbs express what our
+list/update/move vocabulary could not.
+
+### `claim` — one operation, or it is a race
+
+"List the ready column, pick one, set the assignee, move it" is four calls with
+three gaps in between, and two runners racing through those gaps both see an
+unclaimed card and both believe they won. So claiming is a single operation the
+backend settles, with the ordering that makes it safe: establish the claim in
+the store that can arbitrate, and only then move the card — never the reverse,
+because the move is not what anyone contends on.
+
+Most backends cannot honour that, so `claim` / `release` live on a separate
+`ClaimingAdapter` and are **absent** rather than emulated. `canClaim(adapter)`
+reports whether a real claim is available. Do not fall back to
+list-then-update: that reinstates the exact race, while looking from outside as
+though it had been solved.
+
+```ts
+import { canClaim } from '@verevoir/workflows';
+
+if (!canClaim(adapter)) throw new Error('this board cannot arbitrate claims');
+const outcome = await adapter.claim(env, boardUrl, { holder: 'runner-7' });
+if (outcome.outcome === 'claimed') {
+  // outcome.claim.id is the handle to report against and to release with
+}
+```
+
+### `moveStoryTo` — a column you may only enter once its claim is true
+
+A column names a claim about the world. "In preview" means deployed to preview;
+"done" means live in production. A plain `moveCard` writes that claim without
+checking it, so the board comes to assert things nothing verified.
+
+`moveStoryTo` refuses the move until the column's declared entry conditions
+hold. **What each column requires differs per project**, so conditions are
+declared as data rather than written as functions — a policy can then be read
+from project config, diffed in review, or handed to a model, none of which a
+closure allows.
+
+```ts
+import { moveStoryTo, httpConditionChecker } from '@verevoir/workflows';
+
+const policy = {
+  columns: [
+    {
+      columnId: 'in preview',
+      requires: [
+        {
+          kind: 'http-ok',
+          url: 'https://preview.example/health',
+          describes: 'the preview environment answers',
+        },
+      ],
+    },
+    {
+      columnId: 'done',
+      requires: [{ kind: 'http-ok', url: 'https://app.example/health' }],
+    },
+  ],
+};
+
+const outcome = await moveStoryTo(adapter, env, boardUrl, cardId, 'in preview', {
+  policy,
+  check: httpConditionChecker,
+});
+
+if (outcome.outcome === 'refused') console.error(outcome.reason);
+```
+
+The rule that gives the guard its worth: **a condition that could not be
+evaluated refuses the move.** Unreachable, timed out, no checker for the kind, a
+checker that threw — all of them are `unknown`, and `unknown` is not a pass.
+Failing open would leave the board carrying the same unearned claim, now with
+the appearance of having been verified, which is worse than no guard at all.
+A column the policy does not mention is freely enterable, and `moveCard` remains
+available as the unguarded primitive for the columns that claim nothing.
+
+`http-ok` ships (it needs only `fetch`, and "does the environment answer" is the
+check these columns want). `command` deliberately does not: running a process
+needs Node APIs and grants whoever wrote the policy the ability to run it — the
+consumer supplies that checker, and `firstCheckerToAnswer` chains it with the
+built-in one. Until they do, a `command` condition is `unknown` and refuses,
+which is the honest answer for a check that did not run.
 
 ## Install
 
