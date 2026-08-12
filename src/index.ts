@@ -17,6 +17,54 @@
 // Read-only adapters implement the read half (listColumns,
 // listCards, getCard, listComments) and skip the write half.
 // Read+write adapters implement everything.
+//
+// Two lifecycle operations sit beside that CRUD, because CRUD
+// alone cannot express them:
+//   - `./claim`       taking a card so nobody else can (atomic,
+//                     and absent on backends that cannot be)
+//   - `./transitions` entering a column only once the claim that
+//                     column makes is verified to hold
+// Both are adopted from the agentic-product-platform's tool
+// surface, whose lifecycle-verb shape says things this contract's
+// CRUD shape could not.
+
+export type {
+  ResourceRef,
+  Resource,
+  ResourceClaim,
+  ResourceTypeDescriptor,
+  ResourceCapability,
+  ResourceFieldDef,
+  ResourceFilter,
+  ResourcePatch,
+  ResourceCreate,
+  ResourceAdapter,
+} from './resource.js';
+export { byRank, STATE_IS_NOT_A_FIELD } from './resource.js';
+
+export type { ClaimRequest, ClaimOutcome, ClaimingResourceAdapter } from './claim.js';
+export { canClaim } from './claim.js';
+
+export type {
+  EntryCondition,
+  StatePolicy,
+  TransitionPolicy,
+  ConditionResult,
+  ConditionChecker,
+  TransitionOutcome,
+  TransitioningResourceAdapter,
+} from './transitions.js';
+export {
+  requirementsFor,
+  checkEntry,
+  entryHolds,
+  refusalReason,
+  describe,
+  transitionResource,
+  canTransition,
+} from './transitions.js';
+
+export { httpConditionChecker, firstCheckerToAnswer } from './checkers.js';
 
 /** Auth + config shared across calls to a workflow adapter.
  *
@@ -278,7 +326,14 @@ export interface WorkflowAdapter {
 
   /** Move a card to a different column. Sugar for `updateCard`
    * with just `columnId`; exposed standalone because column-changes
-   * are the central workflow operation and deserve discoverability. */
+   * are the central workflow operation and deserve discoverability.
+   *
+   * UNGUARDED — it writes the state without checking the state is
+   * warranted. Where a column asserts something about the world
+   * ("in preview" = deployed to preview), reach for `moveStoryTo`,
+   * which refuses until that assertion is verified. This stays the
+   * primitive underneath it, and the honest choice for the columns
+   * that claim nothing. */
   moveCard(env: WorkflowEnv, boardUrl: string, cardId: string, toColumnId: string): Promise<void>;
 
   /** Comments on a card, most-recent-first. */

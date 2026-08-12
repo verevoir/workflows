@@ -16,11 +16,153 @@ Direct in-process consumption (the usage shown below) is for: writing your own M
 
 ## Subpaths
 
-- `@verevoir/workflows` — contract module: `WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`.
+- `@verevoir/workflows` — two contracts. The original **card** contract (`WorkflowAdapter`, `Card`, `Column`, `Label`, `Comment`, `CardFilter`, `CardPatch`, `CardCreate`, `CustomFieldDef`, `CustomFieldValue`, `WorkflowEnv`, `WorkflowApiError`), and the **resource** contract that supersedes it (`ResourceAdapter`, `Resource`, `ResourceRef`, `ResourceTypeDescriptor`, `ResourceFilter`, `ResourcePatch`, `byRank`) together with the lifecycle operations described below — `claimResource` / `releaseClaim` (`ClaimingResourceAdapter`, `canClaim`) and `transitionResource` with its `TransitionPolicy`. Existing card adapters keep working; new work should target resources.
 - `@verevoir/workflows/trello` — Trello adapter (read + write).
 - `@verevoir/workflows/notion` — Notion-database adapter (read + write) via `@notionhq/client` (optional peer dep). Maps a Notion database to the WorkflowAdapter contract: rows are cards, the auto-detected status / select property provides columns, the people property gives assignees, the multi_select property gives labels. Body content round-trips through Notion's native `pages.retrieveMarkdown` / `pages.updateMarkdown`.
 - `@verevoir/workflows/obsidian` — [Obsidian Kanban plugin](https://github.com/obsidian-community/obsidian-kanban) adapter (read + write) over a local board `.md` file. No credentials — `boardUrl` is an absolute path or `file://` URL. Lanes (`## headings`) are columns; cards are `- [ ] [[Note]]` wikilinks whose **linked note** is the source of truth: the note's frontmatter `id` is the card identity, its body is `Card.body`, its `tags` are labels, and a date field is the due date. Cards without a resolvable `id` are skipped on reads and 404 when addressed; the board file is never mutated to assign identity. File I/O goes through `@verevoir/sources` (the `fs` adapter for local boards), and frontmatter handling uses the `yaml` package — both are **optional peer dependencies** (like `@notionhq/client` for Notion), required only when you use this subpath.
 - `@verevoir/workflows/backlog` — [Backlog.md](https://backlog.md) adapter (read + write) over a project's `backlog/` directory of markdown task files. No credentials — `boardUrl` is an absolute path (or `file://` URL) to the project root or the `backlog/` dir. Columns are the `statuses` from `backlog/config.yml` (default `To Do` / `In Progress` / `Done` when absent); each `backlog/tasks/*.md` is a card whose frontmatter carries `id` (identity, falling back to the filename stem), `title`, `status` (the column), `labels`, `assignee`, and `parent_task_id` (sub-tasks), with the markdown body as `Card.body`. `createCard` allocates the next `task-N` id; edits preserve unmanaged frontmatter (e.g. `created_date`). Same `@verevoir/sources` + `yaml` **optional peer dependencies** as the Obsidian subpath. Use it to plan and track work in a project repository as plain, committable files.
+
+## Resources, and lifecycle operations that mean something
+
+Tool budget is a hard limit. Eight tools spent on `card` leaves none for
+`story`, `page`, `doc` or an objective tree — so everything addressable is a
+**typed resource** instead, and the same handful of operations covers all of
+them. A new type costs zero tools. Comments stop being a special case: a comment
+is a resource with a `parentId`.
+
+The trade is discoverability, and it is paid deliberately. `listCards` tells a
+reader what it does; `listResources(type)` does not. So affordances move out of
+names and into **data** — `listResourceTypes` reports which types exist, what
+states each has, and what each supports:
+
+```ts
+[
+  {
+    type: 'task',
+    states: ['To Do', 'In Progress', 'Done'],
+    defaultState: 'To Do',
+    claimableStates: ['To Do'],
+    supports: ['create', 'update', 'transition', 'claim'],
+  },
+];
+```
+
+### State lives on the resource
+
+`Resource.state` is a property of the resource — YAML frontmatter in a
+file-backed source, a status property in Notion — and never a shared board
+index. That is what makes a state change **one** write: two runners moving two
+different resources touch different files and cannot collide, a change is a
+one-line diff in that resource's own history, and a person can move an item by
+editing one field in the GitHub web UI without racing anything.
+
+The board is then a query, not a document, so it cannot go stale:
+
+```ts
+const ready = await adapter.listResources(env, sourceUrl, {
+  type: 'task',
+  state: 'To Do',
+  unclaimed: true,
+});
+```
+
+### `claimResource` — one operation, or it is a race
+
+"List the ready ones, pick one, assign it, write it back" is four calls with
+three gaps, and two runners racing through those gaps both see an unclaimed
+resource and both believe they won. With state on the resource, claiming is a
+single compare-and-swap on a single record — conditional on the revision that
+was read.
+
+Most backends cannot arbitrate at all, so `claimResource` / `releaseClaim` live
+on a separate `ClaimingResourceAdapter` and are **absent** rather than emulated.
+`canClaim(adapter)` asks. Do not fall back to read-then-write: that reinstates
+the exact race while looking from outside as though it had been solved.
+
+```ts
+import { canClaim } from '@verevoir/workflows';
+
+if (!canClaim(adapter)) throw new Error('this source cannot arbitrate claims');
+const outcome = await adapter.claimResource(env, sourceUrl, {
+  holder: 'runner-7',
+  type: 'task', // omit `id` to take the first claimable one in rank order
+});
+```
+
+Ordering is explicit. A board file made list _position_ the priority; a resource
+model has nowhere to put that, so `Resource.rank` declares it and `byRank` sorts
+— unranked resources last, so nothing unranked jumps the queue that ranking
+exists to impose.
+
+### `transitionResource` — a state you may only enter once its claim is true
+
+A state names a claim about the world. "In preview" means deployed to preview;
+"done" means live in production. Writing that claim without checking it is how a
+board comes to assert things nothing verified.
+
+`transitionResource` refuses until the state's declared entry conditions hold,
+and leaves the resource untouched when it refuses. **What each state requires
+differs per project**, so conditions are declared as data rather than written as
+functions — a policy can then be read from project config, diffed in review, or
+handed to a model, none of which a closure allows.
+
+```ts
+import { transitionResource, httpConditionChecker } from '@verevoir/workflows';
+
+const policy = {
+  states: [
+    {
+      state: 'in preview',
+      requires: [
+        {
+          kind: 'http-ok',
+          url: 'https://preview.example/health',
+          describes: 'the preview environment answers',
+        },
+      ],
+    },
+    { state: 'done', requires: [{ kind: 'http-ok', url: 'https://app.example/health' }] },
+  ],
+};
+
+const outcome = await transitionResource(
+  adapter,
+  env,
+  sourceUrl,
+  { type: 'task', id: 'task-004' },
+  'in preview',
+  { policy, check: httpConditionChecker, expectRevision: resource.revision }
+);
+
+if (outcome.outcome === 'refused') console.error(outcome.reason);
+```
+
+**`state` is not writable through `updateResource`.** It throws rather than
+setting it, and points at `transitionResource` — so the guard is structural
+rather than conventional, and cannot be walked around by reaching for the
+primitive.
+
+Three outcomes, deliberately distinct. `moved` succeeded. `refused` means a
+condition did not hold — go and fix the world. `conflict` means every condition
+held and the _write_ lost a race, so re-read and retry; calling that a refusal
+would send a caller hunting for a failing check that does not exist.
+
+The rule the guard rests on: **a condition that could not be evaluated refuses
+the move.** Unreachable, timed out, no checker for the kind, a checker that
+threw, no checker supplied at all — every one is `unknown`, and `unknown` is not
+a pass. Failing open would leave the resource carrying the same unearned claim,
+now with the appearance of having been verified, which is worse than no guard.
+A state the policy does not mention is freely enterable.
+
+`http-ok` ships, since "does the environment answer" is the check these states
+want and it needs only `fetch`. It validates the scheme first: the policy is
+project config, and a `file:` URL would have it read local disk on behalf of
+whoever edited the policy and report that as evidence of a deployment. It also
+reports an unreachable host as `unknown` rather than `failed` — a DNS blip and a
+torn-down environment look identical from there, and only one of them means the
+claim is false. `command` execution is left to the consumer, because running a
+process grants whoever wrote the policy the ability to run it;
+`firstCheckerToAnswer` chains your checker with the built-in one.
 
 ## Install
 
