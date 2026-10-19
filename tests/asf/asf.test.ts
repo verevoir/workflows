@@ -2,12 +2,16 @@ import { rm, writeFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkflowApiError } from '../../src/index.js';
 import {
+  addComment,
+  asf,
   createCard,
   envFromAsfProcessEnv,
   getCard,
   isCardFresh,
   listCards,
   listColumns,
+  listComments,
+  listCustomFields,
   moveCard,
   updateCard,
 } from '../../src/asf/index.js';
@@ -616,5 +620,58 @@ describe('moveCard', () => {
     // archived (no-retry) path; it fell through to the ordinary bounded retry,
     // same as any other non-archived 409, and exhausted at the same bound.
     expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+});
+
+describe('listComments', () => {
+  it('returns [], not a throw — ASF has no comment route, no network call', async () => {
+    const fetchMock = vi.fn();
+    const result = await listComments(envWith(fetchMock), 'ignored', 't1');
+    expect(result).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('addComment', () => {
+  it('refuses with a named 501 — ASF has no comment route, no network call', async () => {
+    const fetchMock = vi.fn();
+    await expect(
+      addComment(envWith(fetchMock), 'ignored', 't1', 'A comment')
+    ).rejects.toMatchObject({ status: 501 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('listCustomFields', () => {
+  it('returns [], not a throw — ASF properties have no listable schema, no network call', async () => {
+    const fetchMock = vi.fn();
+    const result = await listCustomFields(envWith(fetchMock), 'ignored');
+    expect(result).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('asf (aggregate export)', () => {
+  it('carries every WorkflowAdapter method', () => {
+    expect(Object.keys(asf).sort()).toEqual(
+      [
+        'listColumns',
+        'listCards',
+        'getCard',
+        'isCardFresh',
+        'createCard',
+        'updateCard',
+        'moveCard',
+        'listComments',
+        'addComment',
+        'listCustomFields',
+      ].sort()
+    );
+  });
+
+  it('each entry is the same function this module exports standalone', () => {
+    expect(asf.listColumns).toBe(listColumns);
+    expect(asf.moveCard).toBe(moveCard);
+    expect(asf.listCustomFields).toBe(listCustomFields);
   });
 });

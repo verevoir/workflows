@@ -41,8 +41,15 @@
 // ASF_MOVE_MAX_ATTEMPTS times before giving up with a named
 // WorkflowApiError(409).
 //
-// listComments, addComment and listCustomFields are not yet implemented, so
-// no aggregate `asf: WorkflowAdapter` export exists yet.
+// listComments/addComment/listCustomFields: confirmed against the full
+// app/api/spaces/[spaceId]/* route tree (archive, assets, claims, grants,
+// pages, resources, run-requests, tasks) — no comment route and no
+// field-schema route exist anywhere. TaskPropertiesSchema (packages/
+// contracts/src/taskFields.ts) is z.record(string, unknown): a free-form
+// bag with no listable field definitions, not merely an unimplemented one.
+// listComments/listCustomFields degrade to empty reads, and addComment
+// refuses — the same split Obsidian and Backlog already use for a
+// capability their own backend has no equivalent for at all.
 
 import {
   WorkflowApiError,
@@ -51,6 +58,9 @@ import {
   type CardFilter,
   type CardPatch,
   type Column,
+  type Comment,
+  type CustomFieldDef,
+  type WorkflowAdapter,
   type WorkflowEnv,
 } from '../index.js';
 import { renewingToken, staticToken, type TokenProvider } from './token.js';
@@ -379,3 +389,52 @@ export async function moveCard(
     }
   }
 }
+
+/** ASF has no comment route anywhere under app/api/spaces/[spaceId]/* —
+ * reads degrade to empty, matching Obsidian's and Backlog's own "no
+ * equivalent" convention for a capability the backend entirely lacks. */
+export async function listComments(
+  _env: WorkflowEnv,
+  _boardUrl: string,
+  _cardId: string
+): Promise<Comment[]> {
+  return [];
+}
+
+export async function addComment(
+  _env: WorkflowEnv,
+  _boardUrl: string,
+  _cardId: string,
+  _body: string
+): Promise<void> {
+  throw new WorkflowApiError(
+    'ASF has no comment route under app/api/spaces/[spaceId]/tasks or /resources',
+    501
+  );
+}
+
+/** ASF's task properties (TaskPropertiesSchema, packages/contracts/src/
+ * taskFields.ts) are z.record(string, unknown) — a free-form bag with no
+ * listable field schema, and no route exposes one. [] matches Trello's own
+ * convention for "no custom-field concept" (README: "Adapters that don't
+ * support custom fields... return [] ... and leave Card.customFields
+ * undefined"). */
+export async function listCustomFields(
+  _env: WorkflowEnv,
+  _boardUrl: string
+): Promise<CustomFieldDef[]> {
+  return [];
+}
+
+export const asf: WorkflowAdapter = {
+  listColumns,
+  listCards,
+  getCard,
+  isCardFresh,
+  createCard,
+  updateCard,
+  moveCard,
+  listComments,
+  addComment,
+  listCustomFields,
+};
