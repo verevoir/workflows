@@ -324,6 +324,26 @@ describe('createCard', () => {
     ).rejects.toMatchObject({ status: 501 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('a read-back failure after a successful create propagates, not swallowed', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: { method?: string }) => {
+      if (init?.method === 'POST') {
+        return fakeResponse(200, { id: 't9' });
+      }
+      // The getCard re-read (GET tasks/t9) fails.
+      return fakeResponse(503, {
+        error: { code: 'DEPENDENCY_UNAVAILABLE', message: 'store unavailable' },
+      });
+    });
+    await expect(
+      createCard(envWith(fetchMock), 'ignored', 'backlog', { title: 'New task' })
+    ).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringContaining('store unavailable'),
+    });
+    // The POST to /resources ran and "succeeded" — it's the read-back that failed.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('updateCard', () => {
@@ -406,6 +426,42 @@ describe('updateCard', () => {
       updateCard(envWith(fetchMock), 'ignored', 't1', { labelIds: ['l1'] })
     ).rejects.toMatchObject({ status: 501 });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('the PUT succeeds, but the following move fails — the move failure propagates, not swallowed', async () => {
+    const calls: Array<{ url: string; init?: { method?: string } }> = [];
+    const fetchMock = vi.fn(async (url: string, init?: { method?: string }) => {
+      calls.push({ url, init });
+      if (url.includes('/resources/') && init?.method === 'GET') {
+        return fakeResponse(200, { revision: 'rev-1' }, { etag: '"etag-1"' });
+      }
+      if (url.includes('/resources/') && init?.method === 'PUT') {
+        return fakeResponse(200, {});
+      }
+      if (url.includes('/tasks/') && init?.method === 'GET') {
+        return fakeResponse(200, {
+          id: 't1',
+          key: 'APF-1',
+          title: 'A',
+          column: 'backlog',
+          revision: 'rev-1',
+        });
+      }
+      // POST /tasks/t1/moves
+      return fakeResponse(503, {
+        error: { code: 'DEPENDENCY_UNAVAILABLE', message: 'store unavailable' },
+      });
+    });
+    await expect(
+      updateCard(envWith(fetchMock), 'ignored', 't1', { title: 'Renamed', columnId: 'ready' })
+    ).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringContaining('store unavailable'),
+    });
+    // The edit (ETag GET + PUT under /resources/) ran and landed before the
+    // move was attempted and failed — the title change is not undone or hidden.
+    expect(calls.some((c) => c.url.includes('/resources/') && c.init?.method === 'PUT')).toBe(true);
+    expect(calls.some((c) => c.url.includes('/moves'))).toBe(true);
   });
 });
 
@@ -528,5 +584,37 @@ describe('moveCard', () => {
     });
     // Exactly one GET + one POST — no retry loop for an archived conflict.
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('a truncated/unparseable 409 body is treated as not archived — the bounded retry still applies', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: { method?: string }) => {
+      if (init?.method === 'POST') {
+        return {
+          ok: false,
+          status: 409,
+          statusText: 'Conflict',
+          // Truncated mid-stream — not valid JSON. isArchivedConflict's own
+          // JSON.parse attempt on this must fail closed (not archived),
+          // not throw and not falsely report an archived conflict.
+          text: async () => '{"error":{"code":"CONFLICT","message":"The task changed si',
+          headers: { get: () => null },
+        };
+      }
+      return fakeResponse(200, {
+        id: 't1',
+        key: 'APF-1',
+        title: 'A',
+        column: 'backlog',
+        revision: 'rev-1',
+      });
+    });
+    await expect(moveCard(envWith(fetchMock), 'ignored', 't1', 'ready')).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining('after 3 attempts'),
+    });
+    // 3 GETs + 3 POSTs — the malformed body did not short-circuit into the
+    // archived (no-retry) path; it fell through to the ordinary bounded retry,
+    // same as any other non-archived 409, and exhausted at the same bound.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 });

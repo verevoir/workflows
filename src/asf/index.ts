@@ -332,7 +332,14 @@ const ASF_MOVE_MAX_ATTEMPTS = 3;
 
 /** True only for the server's archived-task 409 (details.reason ===
  * 'archived'), distinct from a racing-move 409 — retrying an archived
- * conflict can't succeed, since the column won't change on its own. */
+ * conflict can't succeed, since the column won't change on its own. A
+ * truncated 409 body (asfCall slices detail to 300 chars) or one that
+ * is not valid JSON at all is treated the same as a non-archived
+ * conflict — the single try/catch below wraps both JSON.parse and the
+ * subsequent property-reads, so a parse failure, a non-object result,
+ * or a null result all fall through to `false` rather than throwing;
+ * moveCard's bounded retry then runs exactly as it would for any other
+ * non-archived 409, instead of being silently skipped. */
 function isArchivedConflict(err: unknown): boolean {
   if (!(err instanceof WorkflowApiError) || err.status !== 409 || !err.detail) return false;
   try {
