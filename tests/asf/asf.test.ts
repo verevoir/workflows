@@ -15,13 +15,21 @@ import { staticToken } from '../../src/asf/token.js';
 
 function fakeResponse(
   status: number,
-  body: unknown
-): { ok: boolean; status: number; statusText: string; text: () => Promise<string> } {
+  body: unknown,
+  headers: Record<string, string> = {}
+): {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text: () => Promise<string>;
+  headers: { get: (name: string) => string | null };
+} {
   return {
     ok: status >= 200 && status < 300,
     status,
     statusText: status === 200 ? 'OK' : 'Error',
     text: async () => JSON.stringify(body),
+    headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
   };
 }
 
@@ -278,20 +286,124 @@ describe('envFromAsfProcessEnv', () => {
 });
 
 describe('createCard', () => {
-  it('refuses with a named 501 — ASF has no create route, no network call', async () => {
+  it('POSTs the fields form to /resources, then reads the task back via getCard', async () => {
+    const calls: Array<{ url: string; init?: { method?: string; body?: string } }> = [];
+    const fetchMock = vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, init });
+      if (init?.method === 'POST') {
+        return fakeResponse(200, { id: 't9' });
+      }
+      return fakeResponse(200, { id: 't9', key: 'APF-9', title: 'New task', column: 'backlog' });
+    });
+    const card = await createCard(envWith(fetchMock), 'ignored', 'backlog', {
+      title: 'New task',
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.url).toBe('https://example.test/api/spaces/space-1/resources');
+    expect(JSON.parse(calls[0]?.init?.body ?? '{}')).toEqual({
+      subtype: 'story',
+      title: 'New task',
+      body: '',
+      properties: {},
+      column: 'backlog',
+    });
+    // The create response is a page-shaped wrapper, not a bare Task — the
+    // adapter re-reads via getCard (tasks/{id}) rather than parsing it.
+    expect(calls[1]?.url).toBe('https://example.test/api/spaces/space-1/tasks/t9');
+    expect(card.id).toBe('t9');
+    expect(card.readableId).toBe('APF-9');
+  });
+
+  it('refuses a field ASF has no slot for, with no network call', async () => {
     const fetchMock = vi.fn();
     await expect(
-      createCard(envWith(fetchMock), 'ignored', 'backlog', { title: 'New task' })
+      createCard(envWith(fetchMock), 'ignored', 'backlog', {
+        title: 'New task',
+        assigneeIds: ['u1'],
+      })
     ).rejects.toMatchObject({ status: 501 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
 describe('updateCard', () => {
-  it('refuses with a named 501 — ASF has no generic update route, no network call', async () => {
-    const fetchMock = vi.fn();
+  it('fetches an ETag from resources/{id}, then PUTs the fields form under If-Match', async () => {
+    const calls: Array<{
+      url: string;
+      init?: { method?: string; headers?: Record<string, string>; body?: string };
+    }> = [];
+    const fetchMock = vi.fn(
+      async (
+        url: string,
+        init?: { method?: string; headers?: Record<string, string>; body?: string }
+      ) => {
+        calls.push({ url, init });
+        if (init?.method === 'PUT') {
+          return fakeResponse(200, {});
+        }
+        return fakeResponse(200, { revision: 'rev-1' }, { etag: '"etag-1"' });
+      }
+    );
+    await updateCard(envWith(fetchMock), 'ignored', 't1', { title: 'Renamed' });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.url).toBe('https://example.test/api/spaces/space-1/resources/t1');
+    expect(calls[1]?.url).toBe('https://example.test/api/spaces/space-1/resources/t1');
+    expect(calls[1]?.init?.method).toBe('PUT');
+    expect(calls[1]?.init?.headers?.['if-match']).toBe('"etag-1"');
+    expect(JSON.parse(calls[1]?.init?.body ?? '{}')).toEqual({ title: 'Renamed' });
+  });
+
+  it('a columnId-only patch skips the PUT entirely and goes straight to moveCard', async () => {
+    const calls: Array<{ url: string; init?: { method?: string } }> = [];
+    const fetchMock = vi.fn(async (url: string, init?: { method?: string }) => {
+      calls.push({ url, init });
+      if (init?.method === 'POST') {
+        return fakeResponse(200, {
+          id: 't1',
+          key: 'APF-1',
+          title: 'A',
+          column: 'ready',
+          revision: 'rev-2',
+        });
+      }
+      return fakeResponse(200, {
+        id: 't1',
+        key: 'APF-1',
+        title: 'A',
+        column: 'backlog',
+        revision: 'rev-1',
+      });
+    });
+    await updateCard(envWith(fetchMock), 'ignored', 't1', { columnId: 'ready' });
+    // No /resources call at all — moveCard's own GET + POST under /tasks only.
+    expect(calls.every((c) => !c.url.includes('/resources/'))).toBe(true);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('a 412 (stale If-Match) surfaces as WorkflowApiError(412)', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: { method?: string }) => {
+      if (init?.method === 'PUT') {
+        return fakeResponse(412, { error: { message: 'stale' } });
+      }
+      return fakeResponse(200, {}, { etag: '"etag-1"' });
+    });
     await expect(
       updateCard(envWith(fetchMock), 'ignored', 't1', { title: 'Renamed' })
+    ).rejects.toMatchObject({ status: 412 });
+  });
+
+  it('throws a named error when ASF returns no ETag, no PUT sent', async () => {
+    const fetchMock = vi.fn(async () => fakeResponse(200, {}));
+    await expect(
+      updateCard(envWith(fetchMock), 'ignored', 't1', { title: 'Renamed' })
+    ).rejects.toMatchObject({ message: expect.stringContaining('no ETag') });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a field ASF has no slot for, with no network call', async () => {
+    const fetchMock = vi.fn();
+    await expect(
+      updateCard(envWith(fetchMock), 'ignored', 't1', { labelIds: ['l1'] })
     ).rejects.toMatchObject({ status: 501 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
