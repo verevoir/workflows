@@ -1,4 +1,4 @@
-// @verevoir/workflows/asf — ASF Platform WorkflowAdapter (PR A: auth + reads).
+// @verevoir/workflows/asf — ASF Platform WorkflowAdapter.
 //
 // Task -> Card. BOARD_COLUMNS (backlog, ready, in-progress,
 // awaiting-human-review, done) is a closed, server-fixed set with no
@@ -14,11 +14,26 @@
 // field (parentId stays undefined — ASF tasks are flat). `revision` is the
 // board's own optimistic-concurrency handle; reused here as Card.lastActivity
 // and isCardFresh's version, since ASF exposes no narrower freshness probe.
+//
+// createCard and updateCard throw WorkflowApiError(501): the control-plane
+// API has no route for either (confirmed against app/api/spaces/[spaceId]/
+// tasks/route.ts and .../tasks/[taskId]/route.ts — both export GET only).
+// moveCard is the one real write route (.../tasks/[taskId]/moves): it reads
+// the task's current revision, POSTs the move conditioned on it, and on a
+// genuine revision race (409, distinct from an archived-task 409 by the
+// server's own details.reason) refetches and retries up to
+// ASF_MOVE_MAX_ATTEMPTS times before giving up with a named
+// WorkflowApiError(409).
+//
+// listComments, addComment and listCustomFields are not yet implemented, so
+// no aggregate `asf: WorkflowAdapter` export exists yet.
 
 import {
   WorkflowApiError,
   type Card,
+  type CardCreate,
   type CardFilter,
+  type CardPatch,
   type Column,
   type WorkflowEnv,
 } from '../index.js';
@@ -175,5 +190,74 @@ export async function isCardFresh(
   } catch (err) {
     if (err instanceof WorkflowApiError && err.status === 404) return false;
     throw err;
+  }
+}
+
+export async function createCard(
+  _env: WorkflowEnv,
+  _boardUrl: string,
+  _columnId: string,
+  _fields: CardCreate
+): Promise<Card> {
+  throw new WorkflowApiError(
+    'ASF has no route to create a task (tasks/route.ts exports GET only); tasks are created outside this API',
+    501
+  );
+}
+
+export async function updateCard(
+  _env: WorkflowEnv,
+  _boardUrl: string,
+  _cardId: string,
+  _patch: CardPatch
+): Promise<void> {
+  throw new WorkflowApiError(
+    'ASF has no route to update a task generically (tasks/[taskId]/route.ts exports GET only); only moveCard (column) is supported',
+    501
+  );
+}
+
+const ASF_MOVE_MAX_ATTEMPTS = 3;
+
+/** True only for the server's archived-task 409 (details.reason ===
+ * 'archived'), distinct from a racing-move 409 — retrying an archived
+ * conflict can't succeed, since the column won't change on its own. */
+function isArchivedConflict(err: unknown): boolean {
+  if (!(err instanceof WorkflowApiError) || err.status !== 409 || !err.detail) return false;
+  try {
+    const parsed = JSON.parse(err.detail) as { error?: { details?: { reason?: string } } };
+    return parsed.error?.details?.reason === 'archived';
+  } catch {
+    return false;
+  }
+}
+
+export async function moveCard(
+  env: WorkflowEnv,
+  _boardUrl: string,
+  cardId: string,
+  toColumnId: string
+): Promise<void> {
+  const asf = asfEnv(env);
+  const path = `/api/spaces/${asf.spaceId}/tasks/${cardId}`;
+  for (let attempt = 1; attempt <= ASF_MOVE_MAX_ATTEMPTS; attempt++) {
+    const current = await asfCall<AsfTask>(asf, 'GET', path);
+    try {
+      await asfCall<AsfTask>(asf, 'POST', `${path}/moves`, {
+        column: toColumnId,
+        ...(current.revision !== undefined ? { expectedRevision: current.revision } : {}),
+      });
+      return;
+    } catch (err) {
+      if (!(err instanceof WorkflowApiError) || err.status !== 409 || isArchivedConflict(err)) {
+        throw err;
+      }
+      if (attempt === ASF_MOVE_MAX_ATTEMPTS) {
+        throw new WorkflowApiError(
+          `moveCard: the task kept changing underneath this move after ${ASF_MOVE_MAX_ATTEMPTS} attempts`,
+          409
+        );
+      }
+    }
   }
 }

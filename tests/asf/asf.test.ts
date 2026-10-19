@@ -2,11 +2,14 @@ import { rm, writeFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkflowApiError } from '../../src/index.js';
 import {
+  createCard,
   envFromAsfProcessEnv,
   getCard,
   isCardFresh,
   listCards,
   listColumns,
+  moveCard,
+  updateCard,
 } from '../../src/asf/index.js';
 import { staticToken } from '../../src/asf/token.js';
 
@@ -271,5 +274,147 @@ describe('envFromAsfProcessEnv', () => {
     });
     const env = envFromAsfProcessEnv();
     expect(await env?.tokenProvider()).toBe('fixed-tok');
+  });
+});
+
+describe('createCard', () => {
+  it('refuses with a named 501 — ASF has no create route, no network call', async () => {
+    const fetchMock = vi.fn();
+    await expect(
+      createCard(envWith(fetchMock), 'ignored', 'backlog', { title: 'New task' })
+    ).rejects.toMatchObject({ status: 501 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateCard', () => {
+  it('refuses with a named 501 — ASF has no generic update route, no network call', async () => {
+    const fetchMock = vi.fn();
+    await expect(
+      updateCard(envWith(fetchMock), 'ignored', 't1', { title: 'Renamed' })
+    ).rejects.toMatchObject({ status: 501 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('moveCard', () => {
+  it('reads the current revision, then POSTs the move conditioned on it', async () => {
+    const calls: Array<{ url: string; init?: { method?: string; body?: string } }> = [];
+    const fetchMock = vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, init });
+      if (init?.method === 'POST') {
+        return fakeResponse(200, {
+          id: 't1',
+          key: 'APF-1',
+          title: 'A',
+          column: 'ready',
+          revision: 'rev-2',
+        });
+      }
+      return fakeResponse(200, {
+        id: 't1',
+        key: 'APF-1',
+        title: 'A',
+        column: 'backlog',
+        revision: 'rev-1',
+      });
+    });
+    await moveCard(envWith(fetchMock), 'ignored', 't1', 'ready');
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.url).toBe('https://example.test/api/spaces/space-1/tasks/t1');
+    expect(calls[1]?.url).toBe('https://example.test/api/spaces/space-1/tasks/t1/moves');
+    expect(JSON.parse(calls[1]?.init?.body ?? '{}')).toEqual({
+      column: 'ready',
+      expectedRevision: 'rev-1',
+    });
+  });
+
+  it('a revision conflict (racing move) is refetched and retried, then succeeds', async () => {
+    let postAttempts = 0;
+    const fetchMock = vi.fn(async (_url: string, init?: { method?: string }) => {
+      if (init?.method === 'POST') {
+        postAttempts += 1;
+        if (postAttempts === 1) {
+          return fakeResponse(409, {
+            error: {
+              code: 'CONFLICT',
+              message: 'The task changed since it was read; reload and try again',
+            },
+          });
+        }
+        return fakeResponse(200, {
+          id: 't1',
+          key: 'APF-1',
+          title: 'A',
+          column: 'ready',
+          revision: 'rev-2',
+        });
+      }
+      return fakeResponse(200, {
+        id: 't1',
+        key: 'APF-1',
+        title: 'A',
+        column: 'backlog',
+        revision: 'rev-1',
+      });
+    });
+    await moveCard(envWith(fetchMock), 'ignored', 't1', 'ready');
+    expect(postAttempts).toBe(2);
+    // 2 GETs (one per attempt) + 2 POSTs (one conflict, one success) — proves a
+    // real refetch happened between attempts, not a blind retry of the same POST.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('a revision conflict that never clears exhausts retries and throws a named 409', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: { method?: string }) => {
+      if (init?.method === 'POST') {
+        return fakeResponse(409, {
+          error: {
+            code: 'CONFLICT',
+            message: 'The task changed since it was read; reload and try again',
+          },
+        });
+      }
+      return fakeResponse(200, {
+        id: 't1',
+        key: 'APF-1',
+        title: 'A',
+        column: 'backlog',
+        revision: 'rev-1',
+      });
+    });
+    await expect(moveCard(envWith(fetchMock), 'ignored', 't1', 'ready')).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining('after 3 attempts'),
+    });
+    // 3 GETs + 3 POSTs — exactly the bound, never more.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it('an archived-task 409 is not retried; it throws that conflict immediately, not the retry-exhausted one', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: { method?: string }) => {
+      if (init?.method === 'POST') {
+        return fakeResponse(409, {
+          error: {
+            code: 'CONFLICT',
+            message: 'The task is archived; unarchive it before moving it',
+            details: { reason: 'archived' },
+          },
+        });
+      }
+      return fakeResponse(200, {
+        id: 't1',
+        key: 'APF-1',
+        title: 'A',
+        column: 'backlog',
+        revision: 'rev-1',
+      });
+    });
+    await expect(moveCard(envWith(fetchMock), 'ignored', 't1', 'ready')).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining('archived'),
+    });
+    // Exactly one GET + one POST — no retry loop for an archived conflict.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
