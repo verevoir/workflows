@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 — Unreleased
+## 0.7.0 — 2026-10-20
 
 - **New: `@verevoir/workflows/asf`** — fifth WorkflowAdapter implementation, against the AI Studio ASF Platform's task API. Read-only in this PR: `listColumns`, `listCards`, `getCard`, `isCardFresh`. The five board columns (`backlog`, `ready`, `in-progress`, `awaiting-human-review`, `done`) are server-fixed, so `listColumns` returns them directly with no network call. `boardUrl` is accepted by the contract but ignored — the space is `AsfEnv.spaceId`, not a URL. Auth is `ASF_TOKEN` (static) or `ASF_CREDENTIALS_FILE` (a renewing token that matches the platform's own renewal-credential rotation, including its grace-window exception); `envFromAsfProcessEnv()` builds an env from `ASF_PLATFORM_BASE_URL`, `ASF_SPACE_ID`, and either credential var. ASF tasks are flat — no `parentId` — and carry no description, so `Card.body` is always `''`. Write operations (`createCard`, `updateCard`, `moveCard`) and comments/custom fields land in follow-up PRs stacked on this one. The `./asf` subpath export and the accompanying version bump are held for the operator's direct sign-off and are not part of this change.
 
