@@ -1,7 +1,7 @@
 {
   "name": "@verevoir/workflows",
   "version": "0.7.0",
-  "description": "Workflow-adapter primitive: a contract over kanban/issue/objective sources (cards with status, assignee, labels) with implementations as subpath imports. Trello today; Jira, Notion DBs, Linear, GitHub Issues, aigency objectives follow.",
+  "description": "Workflow-adapter primitive: a contract over kanban/issue/objective sources (cards with status, assignee, labels) with implementations as subpath imports. Trello today; Jira, Notion DBs, Linear, GitHub Issues, ASF (aigency's own objectives backend) follow.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
