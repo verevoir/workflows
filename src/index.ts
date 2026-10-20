@@ -1,10 +1,11 @@
 // @verevoir/workflows — contract module
 //
 // A `WorkflowAdapter` is a thin client over a workflow source —
-// kanban boards, issue trackers, structured task systems. Today
-// Trello, Notion, Obsidian Kanban, Backlog.md, and the AI Studio
-// ASF Platform (`@verevoir/workflows/asf`) ship today — ASF is
-// aigency's own objectives backend. Jira, Linear, and GitHub
+// kanban boards, issue trackers, structured task systems. Trello,
+// Notion, Obsidian Kanban, Backlog.md, and the AI Studio ASF
+// Platform (`@verevoir/workflows/asf`, the full read+write
+// contract plus its `asf` aggregate const — aigency's own
+// objectives backend) ship today. Jira, Linear, and GitHub
 // Issues/Projects follow under the same contract.
 //
 // The contract assumes ANY workflow source will be one of the
