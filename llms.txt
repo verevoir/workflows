@@ -1,12 +1,12 @@
 # @verevoir/workflows
 
-Workflow-adapter primitive: one contract over kanban / issue / objective sources. Trello today; Jira, Linear, Notion databases, GitHub Issues/Projects, and an in-aigency wrapper over the objective tree follow under the same shape.
+Workflow-adapter primitive: one contract over kanban / issue / objective sources. Trello, Notion, Obsidian Kanban, Backlog.md, and the AI Studio ASF Platform — aigency's own objectives backend — today; Jira, Linear, and GitHub Issues/Projects follow under the same shape.
 
 ## Purpose
 
 Surfaces workflow-shaped sources (cards with status, assignee, labels, custom fields) behind a single neutral contract — so consumers write code once and swap backends. Sibling to `@verevoir/sources` (file-shape) and `@verevoir/context` (cache).
 
-The contract is intentionally non-flavoured by any one tool. `Column` is whatever the backend calls its workflow state (Trello list, Jira status, Notion select option, aigency objective phase). `Label` is whatever it calls its tags. Tools' extensions land in `customFields`.
+The contract is intentionally non-flavoured by any one tool. `Column` is whatever the backend calls its workflow state (Trello list, Jira status, Notion select option, ASF task column). `Label` is whatever it calls its tags. Tools' extensions land in `customFields`.
 
 ## Most consumers reach this via MCP
 
@@ -22,7 +22,9 @@ Direct in-process use (below) is for: writing your own MCP server, building a ne
 - `@verevoir/workflows/obsidian` — Obsidian Kanban adapter (read + write) over a local board `.md` file. `boardUrl` is an absolute path or `file://` URL; no credentials. Lanes (`## headings`) are columns; cards are `- [ ] [[Note]]` wikilinks. The **linked note** is the source of truth: its frontmatter `id` is the card identity, its body is `Card.body`, its `tags` are labels. Cards without a resolvable `id` are skipped on reads and 404 when addressed. File I/O goes through `@verevoir/sources` (the `fs` adapter); `@verevoir/sources` + `yaml` are optional peer deps (like `@notionhq/client` for Notion). Tuned via env: `OBSIDIAN_VAULT_PATH`, `OBSIDIAN_ID_FIELD` (default `id`), `OBSIDIAN_CARD_FOLDER`, `OBSIDIAN_DATE_FIELD` (default `due`), `OBSIDIAN_TAGS_FIELD` (default `tags`). No assignees/comments (read empty, write `501`). Adapter contributed by Kevin Ashton.
 - `@verevoir/workflows/backlog` — [Backlog.md](https://backlog.md) adapter (read + write) over a project's `backlog/` directory. `boardUrl` is an absolute path (or `file://` URL) to the project root or the `backlog/` dir; no credentials. Columns are the `statuses` in `backlog/config.yml` (default `To Do`/`In Progress`/`Done`); each `backlog/tasks/*.md` is a card — frontmatter `id` (identity, falls back to filename stem), `title`, `status` (column), `labels`, `assignee` (bare handle, `@` stripped), `parent_task_id` (sub-tasks); markdown body is `Card.body`. `createCard` allocates the next `task-N` id and writes `task-N - <title>.md`; edits preserve unmanaged frontmatter (e.g. `created_date`). Same `@verevoir/sources` + `yaml` optional peer deps. No comments (read empty, write `501`). For planning/tracking work as committable files in a code repo. `envFromBacklogProcessEnv()` returns `{ token: '' }`.
 
-Future: `@verevoir/workflows/jira`, `@verevoir/workflows/linear`, `@verevoir/workflows/github-issues`, `@verevoir/workflows/aigency-objectives`.
+- `@verevoir/workflows/asf` — AI Studio ASF Platform adapter, full contract (read + write). `asf: WorkflowAdapter` is the aggregate const. No boardUrl parsing — space comes from `AsfEnv.spaceId`, boardUrl is accepted and ignored. The five board columns are server-fixed (no network call for listColumns). Auth: `ASF_TOKEN` (static) or `ASF_CREDENTIALS_FILE` (renewing, matches the platform's renewal-credential rotation incl. grace window). `envFromAsfProcessEnv()` reads `ASF_PLATFORM_BASE_URL` + `ASF_SPACE_ID` + either credential var. Flat (no parentId); no description (Card.body always ''). `createCard`/`updateCard` go through `/resources` (ETag-guarded PUT for updates, column changes via `moveCard`); `moveCard` retries a genuine revision conflict up to 3 times. No comment route and no listable custom-field schema — `listComments`/`listCustomFields` return `[]`, `addComment` refuses with `501`.
+
+Future: `@verevoir/workflows/jira`, `@verevoir/workflows/linear`, `@verevoir/workflows/github-issues`. (aigency's own objectives backend is now `@verevoir/workflows/asf`, above — not a separate future subpath.)
 
 ## Install
 
@@ -77,6 +79,7 @@ Each adapter packs its auth shape into `WorkflowEnv.token`:
 - **Trello** — `"<apiKey>:<apiToken>"` (split on first `:`). Optional `referer` for origin-scoped Power-Up keys (set `TRELLO_REFERER`).
 - **Obsidian** — none. `envFromObsidianProcessEnv()` returns `{ token: '' }`; the adapter reads only local files.
 - **Backlog** — none. `envFromBacklogProcessEnv()` returns `{ token: '' }`; the adapter reads only local files.
+- **ASF** — `ASF_TOKEN` (static) or renewing via `ASF_CREDENTIALS_FILE`. `envFromAsfProcessEnv()` builds from `ASF_PLATFORM_BASE_URL` + `ASF_SPACE_ID` + either.
 - **Jira** (future) — `"<email>:<api-token>"` (basic auth).
 - **Notion** (future) — `"<integration-token>"` (single value).
 - **Linear** (future) — `"<api-key>"` (single value).
@@ -85,7 +88,7 @@ Per-adapter `envFromXxxProcessEnv()` helpers build a valid env from process envi
 
 ## Hierarchy support
 
-Cards carry an optional `parentId` for hierarchical workflows (Jira sub-tasks under epics, Notion nested rows, aigency sub-objectives). Trello is flat — its adapter throws `WorkflowApiError(501)` if a patch tries to set `parentId`.
+Cards carry an optional `parentId` for hierarchical workflows (Jira sub-tasks under epics, Notion nested rows). Trello and ASF are flat — ASF tasks have no `parentId`, and Trello's adapter throws `WorkflowApiError(501)` if a patch tries to set `parentId`.
 
 ## Custom fields
 

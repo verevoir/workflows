@@ -1,14 +1,16 @@
 // @verevoir/workflows — contract module
 //
 // A `WorkflowAdapter` is a thin client over a workflow source —
-// kanban boards, issue trackers, structured task systems. Today
-// only the Trello adapter ships (`@verevoir/workflows/trello`);
-// Jira, Linear, Notion databases, GitHub Issues/Projects, and an
-// in-aigency wrapper over the objective tree follow under the same
-// contract.
+// kanban boards, issue trackers, structured task systems. Trello,
+// Notion, Obsidian Kanban, Backlog.md, and the AI Studio ASF
+// Platform (`@verevoir/workflows/asf`, the full read+write
+// contract plus its `asf` aggregate const — aigency's own
+// objectives backend) ship today. Jira, Linear, and GitHub
+// Issues/Projects follow under the same contract.
 //
 // The contract assumes ANY workflow source will be one of the
-// implementations — including aigency's own objectives. Designs
+// implementations — including aigency's own objectives, now the
+// ASF Platform adapter. Designs
 // that bake in one tool's idioms (Trello "lists", Jira "statuses",
 // Notion "select options") would break that symmetry. So the
 // contract uses neutral names — `Column` is whatever the backend
@@ -57,7 +59,7 @@ export class WorkflowApiError extends Error {
 // ===========================================================
 
 /** A workflow column — a state cards move through. Trello list,
- * Jira status, Notion DB option, aigency objective phase. */
+ * Jira status, Notion DB option, ASF task column. */
 export interface Column {
   id: string;
   name: string;
@@ -77,7 +79,7 @@ export interface Label {
 }
 
 /** A workflow card. Same shape across Trello card, Jira issue,
- * Notion DB row, aigency objective. */
+ * Notion DB row, ASF task. */
 export interface Card {
   id: string;
   /** Human-readable identifier when the backend has one — Trello
@@ -97,9 +99,10 @@ export interface Card {
    * source of truth. */
   columnName?: string;
   /** Parent card ID for hierarchical workflows — Jira sub-tasks
-   * under epics, Notion nested rows, aigency sub-objectives.
-   * Absent for flat backends (Trello). Consumers reconstruct the
-   * tree by walking parentId pointers across `listCards` results. */
+   * under epics, Notion nested rows. Absent for flat backends
+   * (Trello, ASF — ASF tasks have no parentId). Consumers
+   * reconstruct the tree by walking parentId pointers across
+   * `listCards` results. */
   parentId?: string;
   /** Backend-specific member / user IDs. Resolution to display
    * names is out of contract scope; consumers that need names

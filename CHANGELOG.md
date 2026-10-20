@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 — 2026-10-20
+
+- **New: `@verevoir/workflows/asf`** — fifth WorkflowAdapter implementation, against the AI Studio ASF Platform's task API, exported at `./asf`. `asf: WorkflowAdapter` is the full aggregate — every method below, wired to the same functions the module exports standalone.
+  - **Auth**: `ASF_TOKEN` (static) or a renewing token via `ASF_CREDENTIALS_FILE`, matching the platform's own renewal-credential rotation (including its grace-window exception, where a racing caller presenting the just-superseded credential still converges). `envFromAsfProcessEnv()` builds an `AsfEnv` from `ASF_PLATFORM_BASE_URL`, `ASF_SPACE_ID`, and either credential var.
+  - **Reads**: `listColumns` returns the five server-fixed board columns (`backlog`, `ready`, `in-progress`, `awaiting-human-review`, `done`) directly, with no network call; `listCards` (filterable — a `parentId` filter matches nothing, since ASF tasks are flat); `getCard`; `isCardFresh` (compares `revision`).
+  - **Writes**: `createCard` → `POST /api/spaces/{s}/resources` (the fields form), then reads the new task back via `getCard`. `updateCard` fetches a fresh `ETag` from `GET /resources/{id}` and `PUT`s `title`/`body` under `If-Match`; a `columnId` patch routes through `moveCard`, after any other edit, unconditionally. `moveCard` reads the task's current `revision`, `POST`s the move conditioned on it, and on a genuine revision race retries up to 3 times before a named conflict; an archived-task conflict is never retried. Fields ASF's task-fields schema has no slot for (`assigneeIds`, `labelIds`, `dueDate`, `parentId`, `customFields`) are refused by name, never silently dropped.
+  - **Comments/custom fields**: ASF has no comment route and no listable custom-field schema anywhere in its API — `listComments`/`listCustomFields` degrade to `[]`, and `addComment` refuses with `WorkflowApiError(501)`, the same convention Obsidian and Backlog already use for a capability their own backend entirely lacks.
+  - `boardUrl` is accepted by the contract but ignored — the space is `AsfEnv.spaceId`, not a URL. ASF tasks are flat (no `parentId`) and carry no description (`Card.body` is always `''`).
+
 ## 0.6.1 — 2026-06-29
 
 Security (STDIO-429): override `vite` to `^8.0.16`, resolving the high-severity `server.fs.deny` bypass advisory (GHSA-fx2h-pf6j-xcff; vulnerable 8.0.0–8.0.15, pulled transitively via vitest). Dev-only transitive; no runtime change.
